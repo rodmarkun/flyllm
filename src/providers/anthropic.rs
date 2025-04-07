@@ -48,8 +48,8 @@ struct AnthropicUsage {
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: String, model: String, enabled: bool, complexity: u32) -> Self {
-        let base = BaseProvider::new("anthropic".to_string(), api_key, model, enabled, complexity);
+    pub fn new(api_key: String, model: String, enabled: bool) -> Self {
+        let base = BaseProvider::new("anthropic".to_string(), api_key, model, enabled);
         Self { base }
     }
 }
@@ -162,9 +162,5 @@ impl LlmProvider for AnthropicProvider {
     
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()
-    }
-
-    fn get_complexity(&self) -> u32 {
-        self.base.complexity()
     }
 }

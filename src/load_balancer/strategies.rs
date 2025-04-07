@@ -1,7 +1,7 @@
 use crate::load_balancer::instances::LlmInstance;
 
 pub trait LoadBalancingStrategy {
-    fn select_instance(&mut self, providers: &[LlmInstance]) -> usize;
+    fn select_instance<'a>(&mut self, providers: &[&'a LlmInstance]) -> usize;
 }
 
 // Round Robin
@@ -16,7 +16,7 @@ impl RoundRobinStrategy {
 }
 
 impl LoadBalancingStrategy for RoundRobinStrategy {
-    fn select_instance(&mut self, providers: &[LlmInstance]) -> usize {
+    fn select_instance<'a>(&mut self, providers: &[&'a LlmInstance]) -> usize {
         if providers.is_empty() {
             return 0;
         }
