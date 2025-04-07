@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.88"
+futures = "0.3.31"
 json = "0.12.4"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
