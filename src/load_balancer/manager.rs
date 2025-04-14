@@ -9,6 +9,7 @@ use std::time::Instant;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use futures::future::join_all;
+use log::debug;
 
 #[derive(Clone)]
 pub struct LlmManagerRequest {
@@ -27,6 +28,7 @@ pub struct LlmManager {
     instances: Arc<Mutex<Vec<LlmInstance>>>,
     strategy: Arc<Mutex<Box<dyn LoadBalancingStrategy + Send + Sync>>>,
     task_definitions: HashMap<String, TaskDefinition>,
+    instance_counter: Mutex<usize>,
 }
 
 impl LlmManager {
@@ -35,6 +37,7 @@ impl LlmManager {
             instances: Arc::new(Mutex::new(Vec::new())),
             strategy: Arc::new(Mutex::new(Box::new(strategies::RoundRobinStrategy::new()))),
             task_definitions: HashMap::new(),
+            instance_counter: Mutex::new(0),
         }
     }
 
@@ -43,12 +46,17 @@ impl LlmManager {
             instances: Arc::new(Mutex::new(Vec::new())),
             strategy: Arc::new(Mutex::new(strategy)),
             task_definitions: HashMap::new(),
+            instance_counter: Mutex::new(0),
         }
     }
 
     pub fn add_instance(&mut self, provider: Arc<dyn LlmProvider + Send + Sync>) {
         let mut instances = self.instances.lock().unwrap();
-        instances.push(LlmInstance::new(provider));
+        let mut counter = self.instance_counter.lock().unwrap();
+        let id = *counter;
+        *counter += 1;
+        debug!("Adding instance {} ({})", id, provider.get_name());
+        instances.push(LlmInstance::new(id, provider));
     }
 
     pub fn set_strategy(&mut self, strategy: Box<dyn LoadBalancingStrategy + Send + Sync>) {
@@ -57,121 +65,113 @@ impl LlmManager {
     }
     
     pub async fn generate_response(&self, prompt: &str, task: Option<&str>, request_params: Option<HashMap<String, serde_json::Value>>) -> LlmResult<String> {
-        let mut instances = self.instances.lock().unwrap();
-        
-        if instances.is_empty() {
-            return Err(LlmError::ConfigError("No LLM providers available".to_string()));
-        }
-        
-        // Get eligible providers and their metrics
-        let eligible_metrics: Vec<InstanceMetrics> = instances.iter()
-            .enumerate()
-            .filter_map(|(idx, inst)| {
-                let is_eligible = match task {
-                    Some(task_name) => inst.supported_tasks.contains_key(task_name) && inst.provider.is_enabled(),
-                    None => inst.provider.is_enabled(),
-                };
-                
-                if is_eligible {
-                    Some(inst.get_metrics(idx))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        
-        if eligible_metrics.is_empty() {
-            return Err(LlmError::ConfigError(format!("No providers available for task: {}", task.unwrap_or("default"))));
-        }
-        
-        // Lock to get access to strategy
-        let mut strategy = self.strategy.lock().unwrap();
-        
-        // Select provider using the strategy
-        let provider_idx = strategy.select_instance(&eligible_metrics);
-        
-        let instance = &mut instances[provider_idx];
-        instance.last_used = Instant::now();
-        instance.request_count += 1;
-        
-        // Merge task-specific parameters with request parameters
-        let mut parameters = HashMap::new();
-        if let Some(task_name) = task {
-            if let Some(task_params) = instance.supported_tasks.get(task_name) {
-                parameters.extend(task_params.clone());
+        let start_time = Instant::now();
+
+        let (selected_provider, selected_instance_id, parameters) = { // Use a block to scope the lock
+            let instances = self.instances.lock().unwrap();
+
+            if instances.is_empty() {
+                return Err(LlmError::ConfigError("No LLM providers available".to_string()));
             }
-        }
-        
-        // Override with request-specific parameters if provided
-        if let Some(req_params) = request_params {
-            parameters.extend(req_params);
-        }
-        
-        // Extract LLM parameters from the merged map
+
+            // Get eligible providers and their metrics
+            let eligible_instances: Vec<(usize, &LlmInstance)> = instances.iter()
+                .enumerate()
+                .filter(|(_, inst)| {
+                    let is_eligible = match task {
+                        Some(task_name) => inst.supports_task(task_name) && inst.provider.is_enabled(),
+                        None => inst.provider.is_enabled(),
+                    };
+                    is_eligible
+                })
+                .collect();
+
+
+            let eligible_metrics: Vec<InstanceMetrics> = eligible_instances.iter()
+                .map(|(_, inst)| inst.get_metrics())
+                .collect();
+
+
+            if eligible_metrics.is_empty() {
+                return Err(LlmError::ConfigError(format!("No providers available for task: {}", task.unwrap_or("default"))));
+            }
+
+            let selected_index_in_eligible = {
+                let mut strategy = self.strategy.lock().unwrap();
+                strategy.select_instance(&eligible_metrics)
+            };
+
+            let selected_instance_id = eligible_metrics[selected_index_in_eligible].id;
+            let (_original_index, instance) = instances.iter().enumerate()
+                                                  .find(|(_, inst)| inst.id == selected_instance_id)
+                                                  .expect("Selected instance ID not found in original list"); // Should not happen
+
+
+            debug!("Selected instance {} ({}) for the request.", instance.id, instance.provider.get_name());
+
+            // Merge task-specific parameters with request parameters
+            let mut final_params = HashMap::new();
+            if let Some(task_name) = task {
+                if let Some(task_params) = instance.supported_tasks.get(task_name) {
+                    final_params.extend(task_params.clone());
+                }
+            }
+            if let Some(req_params) = request_params {
+                final_params.extend(req_params);
+            }
+
+            // Clone the provider Arc and return necessary info
+            (instance.provider.clone(), instance.id, final_params)
+
+        }; 
+
+
         let max_tokens = parameters.get("max_tokens")
             .and_then(|v| v.as_u64())
             .map(|v| v as u32);
-            
+
         let temperature = parameters.get("temperature")
             .and_then(|v| v.as_f64())
             .map(|v| v as f32);
-        
-        // Create and send request
+
         let request = LlmRequest {
             messages: vec![Message {
                 role: "user".to_string(),
                 content: prompt.to_string(),
             }],
-            model: None,
+            model: None, 
             max_tokens,
             temperature,
         };
-        
-        // We need to clone the provider to use it outside the lock
-        let provider = instance.provider.clone();
-        
-        // Drop locks before the async call to avoid deadlocks
-        drop(strategy);
-        drop(instances);
-        
-        let start_time = Instant::now();
-        match provider.generate(&request).await {
-            Ok(response) => {
-                let duration = start_time.elapsed();
-                
-                // Update instance stats after completion
-                let mut instances = self.instances.lock().unwrap();
-                let instance = &mut instances[provider_idx];
-                instance.response_times.push(duration);
-                
-                if instance.response_times.len() > 10 {
-                    instance.response_times.remove(0);
-                }
-                
-                Ok(response.content)
-            },
-            Err(e) => {
-                // Update error count
-                let mut instances = self.instances.lock().unwrap();
-                let instance = &mut instances[provider_idx];
-                instance.error_count += 1;
-                
-                Err(e)
+
+        debug!("Instance {} ({}) processing request...", selected_instance_id, selected_provider.get_name());
+        let result = selected_provider.generate(&request).await;
+        let duration = start_time.elapsed();
+
+        {
+            let mut instances = self.instances.lock().unwrap();
+            // Find the instance again to update its metrics
+            if let Some(instance) = instances.iter_mut().find(|inst| inst.id == selected_instance_id) {
+                 instance.record_result(duration, &result); // Use the new helper method
+            } else {
+                 log::warn!("Instance {} not found for metric update after request.", selected_instance_id);
             }
+        } 
+
+        match result {
+            Ok(response) => Ok(response.content),
+            Err(e) => Err(e),
         }
     }
 
-    pub async fn batch_generate(&self, requests: Vec<LlmManagerRequest>) -> Vec<LlmManagerResponse> {
+     pub async fn batch_generate(&self, requests: Vec<LlmManagerRequest>) -> Vec<LlmManagerResponse> {
         let futures = requests.into_iter().map(|request| {
             let prompt = request.prompt;
             let task_str = request.task;
             let params = request.params;
-            let manager = self;
-            
-            
             async move {
                 let task_ref = task_str.as_deref();
-                match manager.generate_response(&prompt, task_ref, params).await {
+                match self.generate_response(&prompt, task_ref, params).await {
                     Ok(content) => LlmManagerResponse {
                         content,
                         success: true,
@@ -185,15 +185,17 @@ impl LlmManager {
                 }
             }
         }).collect::<Vec<_>>();
-        
+
         join_all(futures).await
     }
 
     pub fn register_task(&mut self, task: TaskDefinition) {
+        debug!("Registering task: {:?}", task);
         self.task_definitions.insert(task.name.clone(), task);
     }
 
     pub fn assign_task_to_provider(&mut self, provider_idx: usize, task_name: &str, parameters: Option<HashMap<String, serde_json::Value>>) {
+        debug!("Assigning task {} to provider {}", task_name, provider_idx);
         let mut instances = self.instances.lock().unwrap();
         if provider_idx < instances.len() {
             let param_map = parameters.unwrap_or_default();
@@ -201,27 +203,11 @@ impl LlmManager {
         }
     }
 
-    pub fn get_provider_stats(&self) -> Vec<ProviderStats> {
+    pub fn get_provider_stats(&self) -> Vec<InstanceMetrics> {
         let instances = self.instances.lock().unwrap();
         instances
             .iter()
-            .map(|p| ProviderStats {
-                avg_response_time_ms: p.avg_response_time().as_millis() as u64,
-                request_count: p.request_count,
-                error_count: p.error_count,
-                error_rate: if p.request_count > 0 {
-                    (p.error_count as f64 / p.request_count as f64) * 100.0
-                } else {
-                    0.0
-                },
-            })
+            .map(|instance| instance.get_metrics())
             .collect()
     }
-}
-
-pub struct ProviderStats {
-    pub avg_response_time_ms: u64,
-    pub request_count: usize,
-    pub error_count: usize,
-    pub error_rate: f64,
 }

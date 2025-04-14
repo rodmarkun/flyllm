@@ -22,6 +22,6 @@ impl LoadBalancingStrategy for RoundRobinStrategy {
         }
         
         self.last_index = (self.last_index + 1) % metrics.len();
-        metrics[self.last_index].index
+        metrics[self.last_index].id
     }
 }
