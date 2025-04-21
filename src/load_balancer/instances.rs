@@ -2,7 +2,6 @@ use log::debug;
 use crate::providers::LlmProvider;
 use crate::{LlmRequest, LlmResponse, LlmResult};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 use std::sync::Arc; 
 
 pub struct InstanceMetrics {
@@ -13,6 +12,7 @@ pub struct InstanceMetrics {
     pub error_rate: f64,
     pub available: bool,
     pub provider_name: String,
+    pub last_used: Instant,
 }
 
 pub struct LlmInstance {
@@ -22,7 +22,6 @@ pub struct LlmInstance {
     pub response_times: Vec<Duration>,
     pub request_count: usize,
     pub error_count: usize,
-    pub supported_tasks: HashMap<String, HashMap<String, serde_json::Value>>,
 }
 
 impl LlmInstance {
@@ -34,35 +33,10 @@ impl LlmInstance {
             response_times: Vec::new(),
             request_count: 0,
             error_count: 0,
-            supported_tasks: HashMap::new(),
         }
     }
 
-    pub async fn generate(&mut self, request: &LlmRequest) -> LlmResult<LlmResponse> {
-        let start_time = Instant::now();
-        debug!("Instance {} ({}) processing request...", self.id, self.provider.get_name());
-        match self.provider.generate(request).await {
-            Ok(response) => {
-                let duration = start_time.elapsed();
-                self.last_used = Instant::now();
-                self.request_count += 1;
-                self.response_times.push(duration);
-                if self.response_times.len() > 10 {
-                    self.response_times.remove(0);
-                }
-                debug!("Instance {} ({}) successfully processed request in {:?}", self.id, self.provider.get_name(), duration);
-                Ok(response)
-            }
-            Err(e) => {
-                self.last_used = Instant::now();
-                self.request_count += 1;
-                self.error_count += 1;
-                debug!("Instance {} ({}) failed to process request: {:?}", self.id, self.provider.get_name(), e);
-                Err(e)
-            }
-        }
-    }
-
+    // TODO - Check this
     pub fn record_result(&mut self, duration: Duration, result: &LlmResult<LlmResponse>) {
         self.last_used = Instant::now();
         self.request_count += 1;
@@ -99,7 +73,7 @@ impl LlmInstance {
     }
 
     pub fn supports_task(&self, task_name: &str) -> bool {
-        self.supported_tasks.contains_key(task_name)
+        self.provider.get_supported_tasks().contains_key(task_name)
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -118,6 +92,7 @@ impl LlmInstance {
             error_rate,
             available: self.is_enabled(),
             provider_name: self.provider.get_name().to_string(),
+            last_used: self.last_used
         }
     }
 }

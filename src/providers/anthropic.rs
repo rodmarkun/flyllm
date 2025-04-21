@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
+use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::provider::{LlmProvider, BaseProvider};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage};
 use crate::errors::{LlmError, LlmResult};
+use crate::constants;
 
 use async_trait::async_trait;
 use reqwest::header;
@@ -48,8 +52,8 @@ struct AnthropicUsage {
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: String, model: String, enabled: bool) -> Self {
-        let base = BaseProvider::new("anthropic".to_string(), api_key, model, enabled);
+    pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
+        let base = BaseProvider::new("anthropic".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 }
@@ -73,7 +77,7 @@ impl LlmProvider for AnthropicProvider {
         );
         headers.insert(
             "anthropic-version",
-            header::HeaderValue::from_static("2023-06-01"),
+            header::HeaderValue::from_static(constants::ANTHROPIC_API_VERSION),
         );
         
         let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
@@ -110,12 +114,12 @@ impl LlmProvider for AnthropicProvider {
             model,
             system: system_content,
             messages: regular_messages,
-            max_tokens: request.max_tokens.unwrap_or(1024),
+            max_tokens: request.max_tokens.unwrap_or(constants::DEFAULT_MAX_TOKENS),
             temperature: request.temperature,
         };
         
         let response = self.base.client()
-            .post("https://api.anthropic.com/v1/messages")
+            .post(constants::ANTHROPIC_API_ENDPOINT)
             .headers(headers)
             .json(&anthropic_request)
             .send()
@@ -158,6 +162,10 @@ impl LlmProvider for AnthropicProvider {
     
     fn get_model(&self) -> &str {
         self.base.model()
+    }
+
+    fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition>{
+        self.base.supported_tasks()
     }
     
     fn is_enabled(&self) -> bool {

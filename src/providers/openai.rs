@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
+use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::provider::{LlmProvider, BaseProvider};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
+use crate::constants;
 
 use async_trait::async_trait;
 use reqwest::header;
@@ -40,8 +44,8 @@ struct OpenAIUsage {
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: String, model: String, enabled: bool) -> Self {
-        let base = BaseProvider::new("openai".to_string(), api_key, model, enabled);
+    pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
+        let base = BaseProvider::new("openai".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 }
@@ -74,7 +78,7 @@ impl LlmProvider for OpenAIProvider {
         };
         
         let response = self.base.client()
-            .post("https://api.openai.com/v1/chat/completions")
+            .post(constants::OPENAI_API_ENDPOINT)
             .headers(headers)
             .json(&openai_request)
             .send()
@@ -112,6 +116,10 @@ impl LlmProvider for OpenAIProvider {
     fn get_model(&self) -> &str {
         self.base.model()
     }
+
+    fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition> {
+        &self.base.supported_tasks()
+    } 
     
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()

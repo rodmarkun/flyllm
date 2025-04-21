@@ -1,27 +1,40 @@
+use log::debug;
+
 use crate::load_balancer::instances::InstanceMetrics;
 
 pub trait LoadBalancingStrategy {
-    fn select_instance(&mut self, providers: &[InstanceMetrics]) -> usize;
+    fn select_instance(&mut self, metrics: &[InstanceMetrics]) -> usize;
 }
 
-// Round Robin
-pub struct RoundRobinStrategy {
-    last_index: usize,
-}
+pub struct LeastRecentlyUsedStrategy;
 
-impl RoundRobinStrategy {
+impl LeastRecentlyUsedStrategy {
     pub fn new() -> Self {
-        Self { last_index: 0 }
+        Self {}
     }
 }
 
-impl LoadBalancingStrategy for RoundRobinStrategy {
+impl LoadBalancingStrategy for LeastRecentlyUsedStrategy {
     fn select_instance(&mut self, metrics: &[InstanceMetrics]) -> usize {
         if metrics.is_empty() {
-            return 0;
+            panic!("LoadBalancingStrategy::select_instance called with empty metrics slice");
         }
         
-        self.last_index = (self.last_index + 1) % metrics.len();
-        metrics[self.last_index].id
+        let mut oldest_index = 0;
+        let mut oldest_time = metrics[0].last_used;
+        
+        for (i, metric) in metrics.iter().enumerate().skip(1) {
+            if metric.last_used < oldest_time {
+                oldest_index = i;
+                oldest_time = metric.last_used;
+            }
+        }
+        
+        debug!(
+            "LeastRecentlyUsedStrategy: Selected index {} (ID: {}) from {} eligible metrics with last_used: {:?}",
+            oldest_index, metrics[oldest_index].id, metrics.len(), oldest_time
+        );
+        
+        oldest_index
     }
 }
