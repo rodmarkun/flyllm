@@ -10,6 +10,9 @@ use async_trait::async_trait;
 use std::time::Duration;
 use reqwest::Client;
 
+use super::google::GoogleProvider;
+use super::mistral::MistralProvider;
+
 #[async_trait]
 pub trait LlmProvider {
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse>;
@@ -71,5 +74,7 @@ pub fn create_provider(provider_type: ProviderType, api_key: String, model: Stri
     match provider_type {
         ProviderType::Anthropic => Arc::new(AnthropicProvider::new(api_key, model, supported_tasks, enabled)),
         ProviderType::OpenAI => Arc::new(OpenAIProvider::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::Mistral => Arc::new(MistralProvider::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::Google => Arc::new(GoogleProvider::new(api_key, model, supported_tasks, enabled)),
     }
 }

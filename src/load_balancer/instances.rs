@@ -1,6 +1,6 @@
 use log::debug;
 use crate::providers::LlmProvider;
-use crate::{LlmRequest, LlmResponse, LlmResult};
+use crate::{LlmResponse, LlmResult};
 use std::time::{Duration, Instant};
 use std::sync::Arc; 
 

@@ -10,7 +10,7 @@ use std::time::Instant;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use futures::future::join_all;
-use log::{debug, info, warn}; // Added info
+use log::{debug, info, warn}; 
 
 #[derive(Clone)]
 pub struct GenerationRequest {
@@ -29,7 +29,6 @@ struct LlmManagerRequest {
 }
 
 impl LlmManagerRequest {
-    // Create from user request
     fn from_generation_request(request: GenerationRequest) -> Self {
         Self {
             prompt: request.prompt,
@@ -83,14 +82,14 @@ impl LlmManager {
     }
 
     pub fn add_instance(&mut self, provider: Arc<dyn LlmProvider + Send + Sync>) {
-        let id = { // Scope counter lock
+        let id = { 
             let mut counter = self.instance_counter.lock().unwrap();
             let id = *counter;
             *counter += 1;
             id
         };
 
-        let new_instance = LlmInstance::new(id, provider.clone()); // Clone provider Arc for the instance
+        let new_instance = LlmInstance::new(id, provider.clone()); 
         debug!("Adding instance {} ({})", id, provider.get_name());
 
         {
@@ -117,18 +116,18 @@ impl LlmManager {
 
     pub async fn generate_sequentially(&self, requests: Vec<GenerationRequest>) -> Vec<LlmManagerResponse> {
         let mut responses = Vec::with_capacity(requests.len());
-        info!("Entering generate_sequentially with {} requests", requests.len()); // *** NEW LOG ***
+        info!("Entering generate_sequentially with {} requests", requests.len()); 
 
-        for (index, request) in requests.into_iter().enumerate() { // Use enumerate for index
-            info!("Starting sequential request index: {}", index); // *** NEW LOG ***
+        for (index, request) in requests.into_iter().enumerate() { 
+            info!("Starting sequential request index: {}", index); 
             let internal_request = LlmManagerRequest::from_generation_request(request);
 
             let response_result = self.generate_response(internal_request, None).await;
-            info!("Sequential request index {} completed generate_response call.", index); // *** NEW LOG ***
+            info!("Sequential request index {} completed generate_response call.", index); 
 
             let response = match response_result {
                 Ok(content) => {
-                    info!("Sequential request index {} succeeded.", index); // *** NEW LOG ***
+                    info!("Sequential request index {} succeeded.", index); 
                     LlmManagerResponse {
                         content,
                         success: true,
@@ -136,7 +135,7 @@ impl LlmManager {
                     }
                 },
                 Err(e) => {
-                    warn!("Sequential request index {} failed: {}", index, e); // *** NEW LOG ***
+                    warn!("Sequential request index {} failed: {}", index, e); 
                     LlmManagerResponse {
                         content: String::new(),
                         success: false,
@@ -145,28 +144,27 @@ impl LlmManager {
                 },
             };
 
-            debug!("Pushing response for sequential request index {}", index); // *** NEW LOG ***
+            debug!("Pushing response for sequential request index {}", index); 
             responses.push(response);
-            info!("Finished processing sequential request index {}", index); // *** NEW LOG ***
+            info!("Finished processing sequential request index {}", index); 
         }
 
-        info!("Exiting generate_sequentially"); // *** NEW LOG ***
+        info!("Exiting generate_sequentially"); 
         responses
     }
 
     pub async fn batch_generate(&self, requests: Vec<GenerationRequest>) -> Vec<LlmManagerResponse> {
-        info!("Entering batch_generate with {} requests", requests.len()); // *** NEW LOG ***
-        // Correct way to convert GenerationRequest to LlmManagerRequest
+        info!("Entering batch_generate with {} requests", requests.len()); 
         let internal_requests = requests.into_iter()
             .map(|request| LlmManagerRequest::from_generation_request(request))
             .collect::<Vec<_>>();
 
-        let futures = internal_requests.into_iter().enumerate().map(|(index, request)| { // Use enumerate for index
+        let futures = internal_requests.into_iter().enumerate().map(|(index, request)| { 
             async move {
-                info!("Starting parallel request index: {}", index); // *** NEW LOG ***
+                info!("Starting parallel request index: {}", index); 
                 match self.generate_response(request, None).await {
                     Ok(content) => {
-                         info!("Parallel request index {} succeeded.", index); // *** NEW LOG ***
+                         info!("Parallel request index {} succeeded.", index); 
                         LlmManagerResponse {
                             content,
                             success: true,
@@ -174,7 +172,7 @@ impl LlmManager {
                         }
                     },
                     Err(e) => {
-                        warn!("Parallel request index {} failed: {}", index, e); // *** NEW LOG ***
+                        warn!("Parallel request index {} failed: {}", index, e); 
                         LlmManagerResponse {
                             content: String::new(),
                             success: false,
@@ -186,7 +184,7 @@ impl LlmManager {
         }).collect::<Vec<_>>();
 
         let results = join_all(futures).await;
-        info!("Exiting batch_generate"); // *** NEW LOG ***
+        info!("Exiting batch_generate"); 
         results
     }
 
@@ -194,23 +192,23 @@ impl LlmManager {
         let start_time = Instant::now();
         let mut attempts = request.attempts;
         let mut failed_instances = request.failed_instances.clone();
-        let prompt_preview = request.prompt.chars().take(50).collect::<String>(); // For logging
+        let prompt_preview = request.prompt.chars().take(50).collect::<String>(); 
         let task = request.task.as_deref();
         let request_params = request.params.clone();
         let max_retries = max_attempts.unwrap_or(self.max_retries);
 
-        info!("generate_response called for task: {:?}, prompt: '{}...'", task, prompt_preview); // *** NEW LOG ***
+        info!("generate_response called for task: {:?}, prompt: '{}...'", task, prompt_preview); 
 
         while attempts <= max_retries {
-            debug!("Attempt {} of {} for request (task: {:?})", attempts + 1, max_retries + 1, task); // Adjusted attempt number for clarity
+            debug!("Attempt {} of {} for request (task: {:?})", attempts + 1, max_retries + 1, task); 
 
             let attempt_result = self.instance_selection(&request.prompt, task, request_params.clone(), &failed_instances).await;
 
             match attempt_result {
                 Ok((content, instance_id)) => {
                     let duration = start_time.elapsed();
-                    info!("Request successful on attempt {} with instance {} after {:?}", attempts + 1, instance_id, duration); // *** NEW LOG ***
-                    debug!("generate_response returning Ok for task: {:?}", task); // *** NEW LOG ***
+                    info!("Request successful on attempt {} with instance {} after {:?}", attempts + 1, instance_id, duration); 
+                    debug!("generate_response returning Ok for task: {:?}", task); 
                     return Ok(content);
                 },
                 Err((error, instance_id)) => {
@@ -219,8 +217,8 @@ impl LlmManager {
                     attempts += 1;
 
                     if attempts > max_retries {
-                         warn!("Max retries ({}) reached for task: {:?}. Returning last error.", max_retries + 1, task); // *** NEW LOG ***
-                         debug!("generate_response returning Err for task: {:?}", task); // *** NEW LOG ***
+                         warn!("Max retries ({}) reached for task: {:?}. Returning last error.", max_retries + 1, task); 
+                         debug!("generate_response returning Err for task: {:?}", task); 
                         return Err(error);
                     }
 
@@ -229,8 +227,7 @@ impl LlmManager {
             }
         }
 
-        // Should not reach here due to the return in the loop, but just in case
-        warn!("Exited retry loop unexpectedly for task: {:?}", task); // *** NEW LOG ***
+        warn!("Exited retry loop unexpectedly for task: {:?}", task); 
         Err(LlmError::ConfigError("No available providers after all retry attempts".to_string()))
     }
 
@@ -240,7 +237,7 @@ impl LlmManager {
                               request_params: Option<HashMap<String, serde_json::Value>>,
                               failed_instances: &[usize]) -> Result<(String, usize), (LlmError, usize)> {
 
-        debug!("instance_selection: Starting selection for task: {:?}", task); // *** NEW LOG ***
+        debug!("instance_selection: Starting selection for task: {:?}", task); 
 
         // 1. Get candidate instance IDs based on task (if any)
         let candidate_ids: Option<Vec<usize>> = match task {
@@ -254,19 +251,19 @@ impl LlmManager {
         if task.is_some() && candidate_ids.is_none() {
             warn!("No instances found supporting task: '{}'", task.unwrap());
             // Return a dummy instance ID of 0 since we don't have a specific instance to blame
-            debug!("instance_selection returning Err (no task support)"); // *** NEW LOG ***
+            debug!("instance_selection returning Err (no task support)"); 
             return Err((LlmError::ConfigError(format!("No providers available for task: {}", task.unwrap())), 0));
         }
 
         // 2. Filter candidates by availability and collect references + metrics
         let eligible_instances_data: Vec<&LlmInstance>;
         let instances_guard = self.instances.lock().unwrap(); // Lock acquired here
-        debug!("instance_selection: Acquired instances lock (1st time)"); // *** NEW LOG ***
+        debug!("instance_selection: Acquired instances lock (1st time)"); 
 
         if instances_guard.is_empty() {
             warn!("No LLM providers configured.");
             drop(instances_guard); // Release lock before returning
-             debug!("instance_selection returning Err (no providers configured)"); // *** NEW LOG ***
+             debug!("instance_selection returning Err (no providers configured)"); 
             return Err((LlmError::ConfigError("No LLM providers available".to_string()), 0));
         }
 
@@ -295,7 +292,7 @@ impl LlmManager {
             );
             warn!("{}", error_msg);
             drop(instances_guard); // Release lock before returning
-            debug!("instance_selection returning Err (no eligible instances)"); // *** NEW LOG ***
+            debug!("instance_selection returning Err (no eligible instances)"); 
             // Return a dummy instance ID since we don't have a specific instance to blame
             return Err((LlmError::ConfigError(error_msg), 0));
         }
@@ -308,9 +305,9 @@ impl LlmManager {
         // 5. Select instance using strategy
         let selected_metric_index = {
             let mut strategy = self.strategy.lock().unwrap();
-            debug!("instance_selection: Acquired strategy lock"); // *** NEW LOG ***
+            debug!("instance_selection: Acquired strategy lock"); 
             let index = strategy.select_instance(&eligible_metrics);
-            debug!("instance_selection: Released strategy lock"); // *** NEW LOG ***
+            debug!("instance_selection: Released strategy lock"); 
             index
         };
 
@@ -345,7 +342,7 @@ impl LlmManager {
         let selected_id = selected_instance_ref.id;
 
         // Explicitly drop the guard to release the first instances lock *before* the await call
-        debug!("instance_selection: Releasing instances lock (1st time) before API call"); // *** NEW LOG ***
+        debug!("instance_selection: Releasing instances lock (1st time) before API call"); 
         drop(instances_guard);
 
 
@@ -376,28 +373,28 @@ impl LlmManager {
 
         // Update metrics regardless of success or failure
         {
-            debug!("instance_selection: Attempting to acquire instances lock (2nd time) for metrics update"); // *** NEW LOG ***
+            debug!("instance_selection: Attempting to acquire instances lock (2nd time) for metrics update"); 
             let mut instances_guard = self.instances.lock().unwrap();
-            debug!("instance_selection: Acquired instances lock (2nd time)"); // *** NEW LOG ***
+            debug!("instance_selection: Acquired instances lock (2nd time)"); 
             if let Some(instance_mut) = instances_guard.iter_mut().find(|inst| inst.id == selected_id) {
                 debug!("Recording result for instance {}", selected_id);
                 instance_mut.record_result(duration, &result);
-                debug!("Finished recording result for instance {}", selected_id); // *** NEW LOG ***
+                debug!("Finished recording result for instance {}", selected_id); 
             } else {
                 warn!("Instance {} not found for metric update after request completion.", selected_id);
             }
-            debug!("instance_selection: Releasing instances lock (2nd time) after metrics update"); // *** NEW LOG ***
+            debug!("instance_selection: Releasing instances lock (2nd time) after metrics update"); 
             // Lock released when instances_guard goes out of scope here
         }
 
         // Return either content or error with the instance ID
         match result {
             Ok(response) => {
-                 debug!("instance_selection returning Ok for instance {}", selected_id); // *** NEW LOG ***
+                 debug!("instance_selection returning Ok for instance {}", selected_id); 
                  Ok((response.content, selected_id))
             },
             Err(e) => {
-                 debug!("instance_selection returning Err for instance {}: {}", selected_id, e); // *** NEW LOG ***
+                 debug!("instance_selection returning Err for instance {}: {}", selected_id, e); 
                  Err((e, selected_id))
             },
         }

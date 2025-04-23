@@ -4,6 +4,8 @@ use serde::{Serialize, Deserialize};
 pub enum ProviderType {
     Anthropic,
     OpenAI,
+    Mistral,
+    Google
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -39,6 +41,8 @@ impl std::fmt::Display for ProviderType {
         match self {
             ProviderType::Anthropic => write!(f, "Anthropic"),
             ProviderType::OpenAI => write!(f, "OpenAI"),
+            ProviderType::Mistral => write!(f, "Mistral"),
+            ProviderType::Google => write!(f, "Google"),
         }
     }
 }

@@ -16,6 +16,12 @@ async fn main() -> LlmResult<()> {
 
     let anthropic_api_key = env::var("ANTHROPIC_API_KEY")
         .expect("ANTHROPIC_API_KEY environment variable not set");
+    let openai_api_key = env::var("OPENAI_API_KEY")
+        .expect("OPENAI_API_KEY environment variable not set");
+    let mistral_api_key = env::var("MISTRAL_API_KEY")
+        .expect("MISTRAL_API_KEY environment variable not set");
+    let google_api_key = env::var("GOOGLE_API_KEY")
+        .expect("GOOGLE_API_KEY environment variable not set");
 
     let mut manager = LlmManager::new();
 
@@ -52,25 +58,25 @@ async fn main() -> LlmResult<()> {
     };
 
 
-    info!("Adding Anthropic providers...");
+    info!("Adding providers...");
 
     manager.add_provider(
-        ProviderType::Anthropic,
-        anthropic_api_key.clone(),
-        "claude-3-haiku-20240307".to_string(),
+        ProviderType::Mistral,
+        mistral_api_key.clone(),
+        "mistral-large-latest".to_string(),
         vec![summary_task.clone(), code_generation_task.clone()],
         true,
     );
-     info!("Added Provider 0 (Haiku) - Supports: Summary, Code Generation");
+     info!("Added Provider 0 (Mistral Large) - Supports: Summary, Code Generation");
 
     manager.add_provider(
         ProviderType::Anthropic,
         anthropic_api_key.clone(),
         "claude-3-sonnet-20240229".to_string(),
-        vec![summary_task.clone(), creative_writing_task.clone()],
+        vec![summary_task.clone(), creative_writing_task.clone(), code_generation_task.clone()],
         true,
     );
-     info!("Added Provider 1 (Sonnet) - Supports: Summary, Creative Writing");
+     info!("Added Provider 1 (Sonnet) - Supports: Summary, Creative Writing, Code Generation");
 
     manager.add_provider(
         ProviderType::Anthropic,
@@ -80,6 +86,24 @@ async fn main() -> LlmResult<()> {
         true,
     );
      info!("Added Provider 2 (Opus) - Supports: Creative Writing, Short Poems");
+
+    manager.add_provider(
+        ProviderType::Google,
+        google_api_key.clone(),
+        "gemini-2.0-flash".to_string(),
+         vec![short_poem_task.clone()],
+        true,
+    );
+     info!("Added Provider 3 (Gemini Flash) - Supports: Short Poems");
+
+    manager.add_provider(
+        ProviderType::OpenAI,
+        openai_api_key.clone(),
+        "gpt-3.5-turbo".to_string(),
+         vec![summary_task.clone()],
+        true,
+    );
+     info!("Added Provider 4 (OpenAI GPT 3.5) - Supports: Summary");
 
     let requests = vec![
         GenerationRequest {
@@ -103,6 +127,11 @@ async fn main() -> LlmResult<()> {
             params: Some(HashMap::from([
                 ("max_tokens".to_string(), json!(50)),
             ])),
+        },
+        GenerationRequest {
+            prompt: "Write a rust program to sum two input numbers via console.".to_string(),
+            task: Some("code_generation".to_string()),
+            params: None,
         },
          GenerationRequest {
              prompt: "Craft a haiku about a silent dawn.".to_string(),
