@@ -2,7 +2,6 @@ pub mod providers;
 pub mod errors;
 pub mod constants;
 pub mod load_balancer;
-use log::{debug, error, info, trace, warn};
 
 pub use providers::{
     ProviderType, 
@@ -16,6 +15,8 @@ pub use providers::{
 
 pub use errors::{LlmError, LlmResult};
 
-pub fn initialize_logging() {
+pub use load_balancer::{LlmManager, GenerationRequest, LlmManagerResponse, TaskDefinition};
+
+pub fn use_logging() {
     env_logger::init();
 }

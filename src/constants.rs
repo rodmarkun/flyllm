@@ -1,5 +1,6 @@
 // General
 pub const DEFAULT_MAX_TOKENS: u32 = 1024;
+pub const DEFAULT_MAX_TRIES: usize = 5;
 
 // OpenAI
 pub const OPENAI_API_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions"; 
