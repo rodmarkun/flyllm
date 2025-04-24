@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub struct InstanceMetrics {
     pub id: usize,
+    pub model: String,
     pub request_count: usize,
     pub error_count: usize,
     pub avg_response_time: Duration,
@@ -17,6 +18,7 @@ pub struct InstanceMetrics {
 
 pub struct LlmInstance {
     pub id: usize,
+    pub model: String,
     pub provider: Arc<dyn LlmProvider + Send + Sync>,
     pub last_used: Instant,
     pub response_times: Vec<Duration>,
@@ -28,6 +30,7 @@ impl LlmInstance {
     pub fn new(id: usize, provider: Arc<dyn LlmProvider + Send + Sync>) -> Self {
         Self {
             id,
+            model: provider.get_model().to_string(),
             provider,
             last_used: Instant::now(),
             response_times: Vec::new(),
@@ -86,6 +89,7 @@ impl LlmInstance {
         
         InstanceMetrics {
             id: self.id,
+            model: self.model.clone(),
             request_count: self.request_count,
             error_count: self.error_count,
             avg_response_time: avg_time,

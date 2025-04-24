@@ -1,4 +1,4 @@
-use crate::providers::{LlmProvider, LlmRequest, Message};
+use crate::providers::{LlmProvider, LlmRequest, Message, TokenUsage};
 use crate::errors::LlmResult;
 use crate::errors::LlmError;
 use crate::load_balancer::instances::{LlmInstance, InstanceMetrics};
@@ -51,7 +51,8 @@ pub struct LlmManager {
     strategy: Arc<Mutex<Box<dyn LoadBalancingStrategy + Send + Sync>>>,
     tasks_to_instances: Arc<Mutex<HashMap<String, Vec<usize>>>>,
     instance_counter: Mutex<usize>,
-    max_retries: usize
+    max_retries: usize,
+    total_usage: Mutex<HashMap<usize, TokenUsage>>
 }
 
 impl LlmManager {
@@ -62,6 +63,7 @@ impl LlmManager {
             tasks_to_instances: Arc::new(Mutex::new(HashMap::new())),
             instance_counter: Mutex::new(0),
             max_retries: constants::DEFAULT_MAX_TRIES,
+            total_usage: Mutex::new(HashMap::new()),
         }
     }
 
@@ -72,6 +74,7 @@ impl LlmManager {
             tasks_to_instances: Arc::new(Mutex::new(HashMap::new())),
             instance_counter: Mutex::new(0),
             max_retries: constants::DEFAULT_MAX_TRIES,
+            total_usage: Mutex::new(HashMap::new()),
         }
     }
 
@@ -106,6 +109,15 @@ impl LlmManager {
         {
             let mut instances = self.instances.lock().unwrap();
             instances.push(new_instance);
+        }
+
+        {
+            let mut usage_map = self.total_usage.lock().unwrap();
+            usage_map.insert(id, TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            });
         }
     }
 
@@ -390,12 +402,16 @@ impl LlmManager {
         // Return either content or error with the instance ID
         match result {
             Ok(response) => {
-                 debug!("instance_selection returning Ok for instance {}", selected_id); 
-                 Ok((response.content, selected_id))
+                if let Some(usage) = &response.usage {
+                    self.update_instance_usage(selected_id, usage);
+                    debug!("Updated token usage for instance {}: {:?}", selected_id, usage);
+                }
+                debug!("instance_selection returning Ok for instance {}", selected_id); 
+                Ok((response.content, selected_id))
             },
             Err(e) => {
-                 debug!("instance_selection returning Err for instance {}: {}", selected_id, e); 
-                 Err((e, selected_id))
+                debug!("instance_selection returning Err for instance {}: {}", selected_id, e); 
+                Err((e, selected_id))
             },
         }
     }
@@ -406,5 +422,75 @@ impl LlmManager {
             .iter()
             .map(|instance| instance.get_metrics())
             .collect()
+    }
+
+    fn update_instance_usage(&self, instance_id: usize, usage: &TokenUsage) {
+        let mut usage_map = self.total_usage.lock().unwrap();
+        
+        let instance_usage = usage_map.entry(instance_id).or_insert(TokenUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        });
+        
+        instance_usage.prompt_tokens += usage.prompt_tokens;
+        instance_usage.completion_tokens += usage.completion_tokens;
+        instance_usage.total_tokens += usage.total_tokens;
+        
+        debug!("Updated usage for instance {}: current total is {} tokens", 
+               instance_id, instance_usage.total_tokens);
+    }
+
+    pub fn update_usage(&self, instance_id: usize, usage: &TokenUsage) {
+        self.update_instance_usage(instance_id, usage);
+    }
+
+    pub fn get_instance_usage(&self, instance_id: usize) -> Option<TokenUsage> {
+        let usage_map = self.total_usage.lock().unwrap();
+        usage_map.get(&instance_id).cloned()
+    }
+
+    pub fn get_total_usage(&self) -> TokenUsage {
+        let usage_map = self.total_usage.lock().unwrap();
+        
+        usage_map.values().fold(
+            TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            },
+            |mut acc, usage| {
+                acc.prompt_tokens += usage.prompt_tokens;
+                acc.completion_tokens += usage.completion_tokens;
+                acc.total_tokens += usage.total_tokens;
+                acc
+            }
+        )
+    }
+
+    pub fn print_token_usage(&self) {
+        println!("\n--- Token Usage Statistics ---");
+        println!("{:<5} {:<15} {:<30} {:<15} {:<15} {:<15}", 
+            "ID", "Provider", "Model", "Prompt Tokens", "Completion Tokens", "Total Tokens");
+        println!("{}", "-".repeat(95));
+
+        // Get provider stats to access provider information
+        let provider_stats = self.get_provider_stats();
+        
+        // Print usage for each instance
+        for stat in provider_stats {
+            if let Some(usage) = self.get_instance_usage(stat.id) {
+                
+                println!(
+                    "{:<5} {:<15} {:<30} {:<15} {:<15} {:<15}", 
+                    stat.id,
+                    stat.provider_name,
+                    stat.model,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.total_tokens
+                );
+            }
+        }
     }
 }

@@ -173,6 +173,8 @@ async fn main() -> LlmResult<()> {
          println!("Parallel execution finished too quickly to measure speedup reliably.");
     }
 
+    manager.print_token_usage();
+
     Ok(())
 }
 
