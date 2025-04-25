@@ -215,3 +215,14 @@ If you want to support FlyLLM, you can:
 - **Star** :star: the project in Github!
 - **Donate** :coin: to my [Ko-fi](https://ko-fi.com/rodmarkun) page!
 - **Share** :heart: the project with your friends!
+
+## To-Do List
+Next features planned:
+
+- [x] ~~Usage tracking~~
+- [ ] Log redirection to file
+- [ ] Streaming responses
+- [ ] Internal documentation
+- [ ] Unit & Integration tests
+- [ ] Builder Pattern
+- [ ] Aggregation of more strategies
