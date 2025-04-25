@@ -207,10 +207,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Contributing
 
-Contributions are welcome! :) Please, feel free to submit a Pull Request.
+Contributions are always welcome! If you're interested in contributing to FlyLLM, please fork the repository and create a new branch for your changes. When you're done with your changes, submit a pull request to merge your changes into the main branch.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## Supporting FlyLLM
+
+If you want to support FlyLLM, you can:
+- **Star** :star: the project in Github!
+- **Donate** :coin: to my [Ko-fi](https://ko-fi.com/rodmarkun) page!
+- **Share** :heart: the project with your friends!
