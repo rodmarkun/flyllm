@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use log::debug;
 
 pub struct GoogleProvider {
     base: BaseProvider,
@@ -197,14 +198,17 @@ impl LlmProvider for GoogleProvider {
             .join(""); 
 
         let usage = if candidate.token_count > 0 {
-             Some(TokenUsage {
-                 prompt_tokens: 0,
-                 completion_tokens: 0,
-                 total_tokens: candidate.token_count,
-             })
+            // Simply use the token count as the total
+            Some(TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: candidate.token_count,
+            })
         } else {
-            None 
+            None
         };
+
+        debug!("Google usage: {:?}", usage);
 
         Ok(LlmResponse {
             content: combined_content,

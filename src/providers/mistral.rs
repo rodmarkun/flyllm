@@ -23,20 +23,24 @@ struct MistralRequest {
     max_tokens: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct MistralResponse {
+    id: String,
     model: String,
+    object: String,
+    created: u64,
     choices: Vec<MistralChoice>,
     usage: Option<MistralUsage>, 
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct MistralChoice {
-    _index: u32,
-    message: Message, 
+    index: u32,  // Removed underscore prefix
+    message: Message,
+    finish_reason: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct MistralUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
@@ -67,7 +71,7 @@ impl LlmProvider for MistralProvider {
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
         );
-         headers.insert(
+        headers.insert(
             header::ACCEPT,
             header::HeaderValue::from_static("application/json"),
         );
@@ -108,8 +112,24 @@ impl LlmProvider for MistralProvider {
             )));
         }
 
-        let mistral_response: MistralResponse = response.json().await
-            .map_err(|e| LlmError::ApiError(format!("Failed to parse Mistral JSON response: {}", e)))?;
+        // Debug: Log raw response body for inspection if needed
+        let response_body = response.text().await
+            .map_err(|e| LlmError::ApiError(format!("Failed to read Mistral response body: {}", e)))?;
+        
+        // Try to parse the response as JSON
+        let mistral_response: MistralResponse = serde_json::from_str(&response_body)
+            .map_err(|e| {
+                // Provide more context in the error message
+                LlmError::ApiError(format!(
+                    "Failed to parse Mistral JSON response: {}. Response body: {}",
+                    e, 
+                    if response_body.len() > 200 { 
+                        format!("{}... (truncated)", &response_body[..200]) 
+                    } else { 
+                        response_body.clone() 
+                    }
+                ))
+            })?;
 
         if mistral_response.choices.is_empty() {
             return Err(LlmError::ApiError("No choices returned from Mistral".to_string()));
