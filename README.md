@@ -2,6 +2,10 @@
 
 FlyLLM is a Rust library that provides a load-balanced, multi-provider client for Large Language Models. It enables developers to seamlessly work with multiple LLM providers (OpenAI, Anthropic, Google, Mistral...) through a unified API with request routing, load balancing, and failure handling.
 
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/00adb692-d65f-47ca-aeed-fda5264ef094" width="300" alt="FlyLLM Logo">
+</div>
+
 ## Features
 
 - **Multiple Provider Support** 🌐: Unified interface for OpenAI, Anthropic, Google, and Mistral APIs
@@ -23,6 +27,9 @@ tokio = { version = "1", features = ["full"] } # For async runtime
 ```
 
 ## Architecture
+
+![Open Escordia_2025-04-25_13-41-55](https://github.com/user-attachments/assets/a56e375b-0bca-4de6-a4d3-c000812105d5)
+
 The LLM Manager (`LLMManager`) serves as the core component for orchestrating language model interactions in your application. It manages multiple LLM instances (`LLMInstance`), each defined by a model, API key, and supported tasks (`TaskDefinition`).
 
 When your application sends a generation request (`GenerationRequest`), the manager automatically selects an appropriate instance based on configurable strategies (Last Recently Used, Quickest Response Time, etc.) and returns the generated response by the LLM (`LLMResponse`). This design prevents rate limiting by distributing requests across multiple instances (even of the same model) with different API keys.
