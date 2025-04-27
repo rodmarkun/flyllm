@@ -2,6 +2,12 @@
 name = "flyllm"
 version = "0.1.0"
 edition = "2021"
+description = "A rust library for unifying LLM backends as an abstraction layer with load balancing."
+authors = ["Pablo Rodríguez <rodmarprogrammer@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/rodmarkun/flyllm"
+readme = "README.md"
+keywords = ["llm", "ai", "openai", "anthropic", "load-balancing"]
 
 [dependencies]
 async-trait = "0.1.88"
