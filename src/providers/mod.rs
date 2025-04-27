@@ -1,3 +1,14 @@
+/// Module for various LLM provider implementations
+///
+/// This module contains implementations for different LLM providers:
+/// - Anthropic (Claude models)
+/// - OpenAI (GPT models)
+/// - Mistral AI
+/// - Google (Gemini models)
+///
+/// Each provider implements a common interface for generating text
+/// completions through their respective APIs.
+
 pub mod anthropic;
 pub mod openai;
 pub mod types;

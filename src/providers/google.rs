@@ -10,10 +10,13 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use log::debug;
 
+/// Provider implementation for Google's Gemini AI models
 pub struct GoogleProvider {
     base: BaseProvider,
 }
 
+/// Request structure for Google's Gemini API
+/// Maps to the format expected by Google's generateContent endpoint
 #[derive(Serialize)]
 struct GoogleGenerateContentRequest {
     contents: Vec<GoogleContent>,
@@ -22,17 +25,20 @@ struct GoogleGenerateContentRequest {
     generation_config: Option<GoogleGenerationConfig>,
 }
 
+/// Content structure for Google's Gemini API messages
 #[derive(Serialize, Deserialize)]
 struct GoogleContent {
     role: String,
     parts: Vec<GooglePart>,
 }
 
+/// Individual content part for Google's Gemini API
 #[derive(Serialize, Deserialize)]
 struct GooglePart {
     text: String,
 }
 
+/// Generation configuration for Google's Gemini API
 #[derive(Serialize, Default)] 
 struct GoogleGenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,11 +54,13 @@ struct GoogleGenerationConfig {
     // stop_sequences: Option<Vec<String>>,
 }
 
+/// Response structure from Google's Gemini API
 #[derive(Deserialize)]
 struct GoogleGenerateContentResponse {
     candidates: Vec<GoogleCandidate>,
 }
 
+/// Individual candidate from Google's Gemini API response
 #[derive(Deserialize)]
 struct GoogleCandidate {
     content: GoogleContent, 
@@ -64,12 +72,31 @@ struct GoogleCandidate {
 
 
 impl GoogleProvider {
+    /// Creates a new Google provider instance
+    ///
+    /// # Parameters
+    /// * `api_key` - Google API key
+    /// * `model` - Default model to use (e.g. "gemini-pro")
+    /// * `supported_tasks` - Map of tasks this provider supports
+    /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
         let base = BaseProvider::new("google".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 
-     fn map_messages_to_contents(messages: &[Message]) -> LlmResult<Vec<GoogleContent>> {
+    /// Maps standard message format to Google's expected format
+    ///
+    /// This function handles several Google-specific requirements:
+    /// - Converts "assistant" role to "model" role
+    /// - Prepends system messages to the first user message
+    /// - Validates that the first message is from the user
+    ///
+    /// # Parameters
+    /// * `messages` - Array of messages in our standard format
+    ///
+    /// # Returns
+    /// * `LlmResult<Vec<GoogleContent>>` - Mapped contents or an error
+    fn map_messages_to_contents(messages: &[Message]) -> LlmResult<Vec<GoogleContent>> {
         let mut contents = Vec::new();
         let mut system_prompt: Option<String> = None;
         let mut first_user_message_index: Option<usize> = None;
@@ -123,6 +150,13 @@ impl GoogleProvider {
 
 #[async_trait]
 impl LlmProvider for GoogleProvider {
+    /// Generates a completion using Google's Gemini API
+    ///
+    /// # Parameters
+    /// * `request` - The LLM request containing messages and parameters
+    ///
+    /// # Returns
+    /// * `LlmResult<LlmResponse>` - The response from the model or an error
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
         if !self.base.is_enabled() {
             return Err(LlmError::ProviderDisabled("Google".to_string()));
@@ -217,18 +251,22 @@ impl LlmProvider for GoogleProvider {
         })
     }
 
+    /// Returns provider name
     fn get_name(&self) -> &str {
         self.base.name()
     }
 
+    /// Returns current model name
     fn get_model(&self) -> &str {
         self.base.model()
     }
 
+    /// Returns supported tasks for this provider
     fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition> {
         &self.base.supported_tasks()
     }
 
+    /// Returns whether this provider is enabled
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()
     }

@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use futures::future::join_all;
 use log::{debug, info, warn}; 
 
+/// User-facing request for LLM generation
 #[derive(Clone)]
 pub struct GenerationRequest {
     pub prompt: String,
@@ -19,6 +20,7 @@ pub struct GenerationRequest {
     pub params: Option<HashMap<String, serde_json::Value>>,
 }
 
+/// Internal request structure with additional retry information
 #[derive(Clone)]
 struct LlmManagerRequest {
     pub prompt: String,
@@ -29,6 +31,7 @@ struct LlmManagerRequest {
 }
 
 impl LlmManagerRequest {
+    /// Convert a user-facing GenerationRequest to internal format
     fn from_generation_request(request: GenerationRequest) -> Self {
         Self {
             prompt: request.prompt,
@@ -40,12 +43,21 @@ impl LlmManagerRequest {
     }
 }
 
+/// Response structure returned to users
 pub struct LlmManagerResponse {
     pub content: String,
     pub success: bool,
     pub error: Option<String>,
 }
 
+/// Main manager for LLM providers that handles load balancing and retries
+///
+/// The LlmManager:
+/// - Manages multiple LLM instances (providers)
+/// - Maps tasks to compatible providers
+/// - Routes requests to appropriate providers
+/// - Implements retries and fallbacks
+/// - Tracks performance metrics and token usage
 pub struct LlmManager {
     instances: Arc<Mutex<Vec<LlmInstance>>>,
     strategy: Arc<Mutex<Box<dyn LoadBalancingStrategy + Send + Sync>>>,
@@ -56,6 +68,7 @@ pub struct LlmManager {
 }
 
 impl LlmManager {
+    /// Create a new LlmManager with default settings
     pub fn new() -> Self {
         Self {
             instances: Arc::new(Mutex::new(Vec::new())),
@@ -67,6 +80,10 @@ impl LlmManager {
         }
     }
 
+    /// Create a new LlmManager with a custom load balancing strategy
+    ///
+    /// # Parameters
+    /// * `strategy` - The load balancing strategy to use
     pub fn new_with_strategy(strategy: Box<dyn LoadBalancingStrategy + Send + Sync>) -> Self {
         Self {
             instances: Arc::new(Mutex::new(Vec::new())),
@@ -78,12 +95,24 @@ impl LlmManager {
         }
     }
 
+    /// Add a new provider by creating it from basic parameters
+    ///
+    /// # Parameters
+    /// * `provider_type` - Which LLM provider type to create
+    /// * `api_key` - API key for the provider
+    /// * `model` - Model identifier to use
+    /// * `tasks` - List of tasks this provider supports
+    /// * `enabled` - Whether this provider should be enabled
     pub fn add_provider(&mut self, provider_type: ProviderType, api_key: String, model: String, tasks: Vec<TaskDefinition>, enabled: bool){
         debug!("Creating provider with model {}", model);
         let provider = create_provider(provider_type, api_key, model, tasks, enabled);
         self.add_instance(provider);
     }
 
+    /// Add a pre-created provider instance
+    ///
+    /// # Parameters
+    /// * `provider` - The provider instance to add
     pub fn add_instance(&mut self, provider: Arc<dyn LlmProvider + Send + Sync>) {
         let id = { 
             let mut counter = self.instance_counter.lock().unwrap();
@@ -121,11 +150,22 @@ impl LlmManager {
         }
     }
 
+    /// Set a new load balancing strategy
+    ///
+    /// # Parameters
+    /// * `strategy` - The new load balancing strategy to use
     pub fn set_strategy(&mut self, strategy: Box<dyn LoadBalancingStrategy + Send + Sync>) {
         let mut current_strategy = self.strategy.lock().unwrap();
         *current_strategy = strategy;
     }
 
+    /// Process multiple requests sequentially
+    ///
+    /// # Parameters
+    /// * `requests` - List of generation requests to process
+    ///
+    /// # Returns
+    /// * List of responses in the same order as the requests
     pub async fn generate_sequentially(&self, requests: Vec<GenerationRequest>) -> Vec<LlmManagerResponse> {
         let mut responses = Vec::with_capacity(requests.len());
         info!("Entering generate_sequentially with {} requests", requests.len()); 
@@ -165,6 +205,13 @@ impl LlmManager {
         responses
     }
 
+    /// Process multiple requests in parallel
+    ///
+    /// # Parameters
+    /// * `requests` - List of generation requests to process
+    ///
+    /// # Returns
+    /// * List of responses in the same order as the requests
     pub async fn batch_generate(&self, requests: Vec<GenerationRequest>) -> Vec<LlmManagerResponse> {
         info!("Entering batch_generate with {} requests", requests.len()); 
         let internal_requests = requests.into_iter()
@@ -200,6 +247,14 @@ impl LlmManager {
         results
     }
 
+    /// Core function to generate a response with retries
+    ///
+    /// # Parameters
+    /// * `request` - The internal request with retry state
+    /// * `max_attempts` - Optional override for maximum retry attempts
+    ///
+    /// # Returns
+    /// * Result with either the generated content or an error
     async fn generate_response(&self, request: LlmManagerRequest, max_attempts: Option<usize>) -> LlmResult<String> {
         let start_time = Instant::now();
         let mut attempts = request.attempts;
@@ -243,6 +298,25 @@ impl LlmManager {
         Err(LlmError::ConfigError("No available providers after all retry attempts".to_string()))
     }
 
+    /// Select an appropriate instance and execute the request
+    ///
+    /// This function:
+    /// 1. Identifies instances that support the requested task
+    /// 2. Filters out failed and disabled instances
+    /// 3. Uses the load balancing strategy to select an instance
+    /// 4. Merges task and request parameters
+    /// 5. Executes the request against the selected provider
+    /// 6. Updates metrics based on the result
+    ///
+    /// # Parameters
+    /// * `prompt` - The prompt text to send
+    /// * `task` - Optional task identifier
+    /// * `request_params` - Optional request parameters
+    /// * `failed_instances` - List of instance IDs that have failed
+    ///
+    /// # Returns
+    /// * Success: (generated content, instance ID)
+    /// * Error: (error, instance ID that failed)
     async fn instance_selection(&self,
                               prompt: &str,
                               task: Option<&str>,
@@ -416,6 +490,10 @@ impl LlmManager {
         }
     }
 
+    /// Get metrics for all provider instances
+    ///
+    /// # Returns
+    /// * List of metrics for all instances
     pub fn get_provider_stats(&self) -> Vec<InstanceMetrics> {
         let instances = self.instances.lock().unwrap();
         instances
@@ -424,6 +502,11 @@ impl LlmManager {
             .collect()
     }
 
+    /// Update token usage for a specific instance
+    ///
+    /// # Parameters
+    /// * `instance_id` - ID of the instance to update
+    /// * `usage` - The token usage to add
     fn update_instance_usage(&self, instance_id: usize, usage: &TokenUsage) {
         let mut usage_map = self.total_usage.lock().unwrap();
         
@@ -441,15 +524,31 @@ impl LlmManager {
                instance_id, instance_usage.total_tokens);
     }
 
+    /// Public method to update usage for a specific instance
+    ///
+    /// # Parameters
+    /// * `instance_id` - ID of the instance to update
+    /// * `usage` - The token usage to add
     pub fn update_usage(&self, instance_id: usize, usage: &TokenUsage) {
         self.update_instance_usage(instance_id, usage);
     }
 
+    /// Get token usage for a specific instance
+    ///
+    /// # Parameters
+    /// * `instance_id` - ID of the instance to query
+    ///
+    /// # Returns
+    /// * Token usage for the specified instance, if found
     pub fn get_instance_usage(&self, instance_id: usize) -> Option<TokenUsage> {
         let usage_map = self.total_usage.lock().unwrap();
         usage_map.get(&instance_id).cloned()
     }
 
+    /// Get total token usage across all instances
+    ///
+    /// # Returns
+    /// * Combined token usage statistics
     pub fn get_total_usage(&self) -> TokenUsage {
         let usage_map = self.total_usage.lock().unwrap();
         
@@ -468,6 +567,7 @@ impl LlmManager {
         )
     }
 
+    /// Print token usage statistics to console
     pub fn print_token_usage(&self) {
         println!("\n--- Token Usage Statistics ---");
         println!("{:<5} {:<15} {:<30} {:<15} {:<15} {:<15}", 

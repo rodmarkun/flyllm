@@ -1,3 +1,5 @@
+/// Common constants used throughout the crate
+
 // General
 pub const DEFAULT_MAX_TOKENS: u32 = 1024;
 pub const DEFAULT_MAX_TRIES: usize = 5;

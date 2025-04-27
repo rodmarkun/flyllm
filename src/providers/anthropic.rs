@@ -9,10 +9,13 @@ use reqwest::header;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
+/// Provider implementation for Anthropic's Claude API
 pub struct AnthropicProvider {
     base: BaseProvider,
 }
 
+/// Request structure for the Anthropic Claude API
+/// Maps to the format expected by Anthropic's API
 #[derive(Serialize)]
 struct AnthropicRequest {
     model: String,
@@ -24,12 +27,14 @@ struct AnthropicRequest {
     temperature: Option<f32>,
 }
 
+/// Individual message structure for Anthropic's API
 #[derive(Serialize)]
 struct AnthropicMessage {
     role: String,
     content: String,
 }
 
+/// Response structure from Anthropic's Claude API
 #[derive(Deserialize)]
 struct AnthropicResponse {
     content: Vec<AnthropicContent>,
@@ -37,6 +42,7 @@ struct AnthropicResponse {
     usage: Option<AnthropicUsage>,
 }
 
+/// Content block from Anthropic's response
 #[derive(Deserialize)]
 struct AnthropicContent {
     text: String,
@@ -44,6 +50,7 @@ struct AnthropicContent {
     content_type: String,
 }
 
+/// Token usage information from Anthropic
 #[derive(Deserialize)]
 struct AnthropicUsage {
     input_tokens: u32,
@@ -51,6 +58,13 @@ struct AnthropicUsage {
 }
 
 impl AnthropicProvider {
+    /// Creates a new Anthropic provider instance
+    ///
+    /// # Parameters
+    /// * `api_key` - Anthropic API key
+    /// * `model` - Default model to use (e.g. "claude-3-opus-20240229")
+    /// * `supported_tasks` - Map of tasks this provider supports
+    /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
         let base = BaseProvider::new("anthropic".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
@@ -59,6 +73,13 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
+    /// Generates a completion using Anthropic's Claude API
+    ///
+    /// # Parameters
+    /// * `request` - The LLM request containing messages and parameters
+    ///
+    /// # Returns
+    /// * `LlmResult<LlmResponse>` - The response from the model or an error
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
         if !self.base.is_enabled() {
             return Err(LlmError::ProviderDisabled("Anthropic".to_string()));
@@ -155,18 +176,22 @@ impl LlmProvider for AnthropicProvider {
         })
     }
     
+    /// Returns provider name
     fn get_name(&self) -> &str {
         self.base.name()
     }
     
+    /// Returns current model name
     fn get_model(&self) -> &str {
         self.base.model()
     }
 
+    /// Returns supported tasks for this provider
     fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition>{
         self.base.supported_tasks()
     }
     
+    /// Returns whether this provider is enabled
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()
     }

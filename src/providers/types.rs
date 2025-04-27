@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 
+/// Enum representing the different LLM providers supported
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderType {
     Anthropic,
@@ -8,6 +9,7 @@ pub enum ProviderType {
     Google
 }
 
+/// Unified request structure used across all providers
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LlmRequest {
     pub messages: Vec<Message>,
@@ -16,12 +18,14 @@ pub struct LlmRequest {
     pub temperature: Option<f32>,
 }
 
+/// Standard message format used across providers
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub role: String,
     pub content: String,
 }
 
+/// Unified response structure returned by all providers
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LlmResponse {
     pub content: String,
@@ -29,6 +33,7 @@ pub struct LlmResponse {
     pub usage: Option<TokenUsage>,
 }
 
+/// Token usage information returned by providers
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TokenUsage {
     pub prompt_tokens: u32,
@@ -36,6 +41,7 @@ pub struct TokenUsage {
     pub total_tokens: u32,
 }
 
+/// Display implementation for ProviderType
 impl std::fmt::Display for ProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

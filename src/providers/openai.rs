@@ -10,10 +10,13 @@ use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
 
+/// Provider implementation for OpenAI's API (GPT models)
 pub struct OpenAIProvider {
     base: BaseProvider,
 }
 
+/// Request structure for OpenAI's chat completion API
+/// Maps to the format expected by OpenAI's API
 #[derive(Serialize)]
 struct OpenAIRequest {
     model: String,
@@ -24,6 +27,7 @@ struct OpenAIRequest {
     temperature: Option<f32>,
 }
 
+/// Response structure from OpenAI's chat completion API
 #[derive(Deserialize)]
 struct OpenAIResponse {
     choices: Vec<OpenAIChoice>,
@@ -31,11 +35,13 @@ struct OpenAIResponse {
     usage: Option<OpenAIUsage>,
 }
 
+/// Individual choice from OpenAI's response
 #[derive(Deserialize)]
 struct OpenAIChoice {
     message: Message,
 }
 
+/// Token usage information from OpenAI
 #[derive(Deserialize)]
 struct OpenAIUsage {
     prompt_tokens: u32,
@@ -44,6 +50,13 @@ struct OpenAIUsage {
 }
 
 impl OpenAIProvider {
+    /// Creates a new OpenAI provider instance
+    ///
+    /// # Parameters
+    /// * `api_key` - OpenAI API key
+    /// * `model` - Default model to use (e.g. "gpt-4-turbo")
+    /// * `supported_tasks` - Map of tasks this provider supports
+    /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
         let base = BaseProvider::new("openai".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
@@ -52,6 +65,13 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAIProvider {
+    /// Generates a completion using OpenAI's API
+    ///
+    /// # Parameters
+    /// * `request` - The LLM request containing messages and parameters
+    ///
+    /// # Returns
+    /// * `LlmResult<LlmResponse>` - The response from the model or an error
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
         if !self.base.is_enabled() {
             return Err(LlmError::ProviderDisabled("OpenAI".to_string()));
@@ -109,18 +129,22 @@ impl LlmProvider for OpenAIProvider {
         })
     }
     
+    /// Returns provider name
     fn get_name(&self) -> &str {
         self.base.name()
     }
     
+    /// Returns current model name
     fn get_model(&self) -> &str {
         self.base.model()
     }
 
+    /// Returns supported tasks for this provider
     fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition> {
         &self.base.supported_tasks()
     } 
     
+    /// Returns whether this provider is enabled
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()
     }

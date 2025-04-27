@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use serde_json;
 
-/// Custom error types
+/// Custom error types for LLM operations
 #[derive(Debug)]
 pub enum LlmError {
     /// Error from the HTTP client
@@ -38,12 +38,14 @@ impl Error for LlmError {
     }
 }
 
+/// Convert reqwest errors to LlmError
 impl From<reqwest::Error> for LlmError {
     fn from(err: reqwest::Error) -> Self {
         LlmError::RequestError(err)
     }
 }
 
+/// Convert serde_json errors to LlmError
 impl From<serde_json::Error> for LlmError {
     fn from(err: serde_json::Error) -> Self {
         LlmError::ParseError(err.to_string())

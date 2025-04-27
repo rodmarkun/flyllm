@@ -9,10 +9,13 @@ use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
 
+/// Provider implementation for Mistral AI's API
 pub struct MistralProvider {
     base: BaseProvider,
 }
 
+/// Request structure for Mistral AI's chat completion API
+/// Maps to the format expected by Mistral's API
 #[derive(Serialize)]
 struct MistralRequest {
     model: String,
@@ -23,6 +26,7 @@ struct MistralRequest {
     max_tokens: Option<u32>,
 }
 
+/// Response structure from Mistral AI's chat completion API
 #[derive(Deserialize, Debug)]
 struct MistralResponse {
     id: String,
@@ -33,6 +37,7 @@ struct MistralResponse {
     usage: Option<MistralUsage>, 
 }
 
+/// Individual choice from Mistral's response
 #[derive(Deserialize, Debug)]
 struct MistralChoice {
     index: u32,  // Removed underscore prefix
@@ -40,6 +45,7 @@ struct MistralChoice {
     finish_reason: Option<String>,
 }
 
+/// Token usage information from Mistral
 #[derive(Deserialize, Debug)]
 struct MistralUsage {
     prompt_tokens: u32,
@@ -48,6 +54,13 @@ struct MistralUsage {
 }
 
 impl MistralProvider {
+    /// Creates a new Mistral provider instance
+    ///
+    /// # Parameters
+    /// * `api_key` - Mistral API key
+    /// * `model` - Default model to use (e.g. "mistral-large")
+    /// * `supported_tasks` - Map of tasks this provider supports
+    /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
         let base = BaseProvider::new("mistral".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
@@ -56,6 +69,13 @@ impl MistralProvider {
 
 #[async_trait]
 impl LlmProvider for MistralProvider {
+    /// Generates a completion using Mistral AI's API
+    ///
+    /// # Parameters
+    /// * `request` - The LLM request containing messages and parameters
+    ///
+    /// # Returns
+    /// * `LlmResult<LlmResponse>` - The response from the model or an error
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
         if !self.base.is_enabled() {
             return Err(LlmError::ProviderDisabled("Mistral".to_string()));
@@ -150,18 +170,22 @@ impl LlmProvider for MistralProvider {
         })
     }
 
+    /// Returns provider name
     fn get_name(&self) -> &str {
         self.base.name()
     }
 
+    /// Returns current model name
     fn get_model(&self) -> &str {
         self.base.model()
     }
 
+    /// Returns supported tasks for this provider
     fn get_supported_tasks(&self) -> &HashMap<String, TaskDefinition> {
         &self.base.supported_tasks()
     }
 
+    /// Returns whether this provider is enabled
     fn is_enabled(&self) -> bool {
         self.base.is_enabled()
     }
