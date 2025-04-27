@@ -229,7 +229,7 @@ Next features planned:
 - [x] ~~Usage tracking~~
 - [ ] Log redirection to file
 - [ ] Streaming responses
-- [ ] Internal documentation
+- [x] Internal documentation
 - [ ] Unit & Integration tests
 - [ ] Builder Pattern
 - [ ] Aggregation of more strategies
