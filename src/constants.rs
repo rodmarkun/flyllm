@@ -16,3 +16,6 @@ pub const MISTRAL_API_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completio
 
 // Google
 pub const GOOGLE_API_ENDPOINT_PREFIX: &str = "https://generativelanguage.googleapis.com";
+
+// Ollama
+pub const OLLAMA_API_ENDPOINT: &str = "http://localhost:11434/api/chat";

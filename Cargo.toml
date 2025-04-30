@@ -1,6 +1,6 @@
 [package]
 name = "flyllm"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 description = "A rust library for unifying LLM backends as an abstraction layer with load balancing."
 authors = ["Pablo Rodríguez <rodmarprogrammer@gmail.com>"]
@@ -19,6 +19,8 @@ serde_json = "1.0.140"
 tokio = { version = "1", features = ["full", "macros"] }
 log = "0.4"
 env_logger = "0.10"
+rand = "0.9.1"
+url = "2.5.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "macros"] }

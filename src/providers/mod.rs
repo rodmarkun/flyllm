@@ -5,6 +5,7 @@
 /// - OpenAI (GPT models)
 /// - Mistral AI
 /// - Google (Gemini models)
+/// - Ollama
 ///
 /// Each provider implements a common interface for generating text
 /// completions through their respective APIs.
@@ -15,6 +16,7 @@ pub mod types;
 pub mod provider;
 pub mod google;
 pub mod mistral;
+pub mod ollama;
 
 pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage};
 pub use provider::{LlmProvider, create_provider};

@@ -2,6 +2,7 @@ use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::types::{LlmRequest, LlmResponse, ProviderType};
 use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::openai::OpenAIProvider;
+use crate::providers::ollama::OllamaProvider;
 use crate::errors::LlmResult;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -108,7 +109,7 @@ impl BaseProvider {
 ///
 /// # Returns
 /// * Arc-wrapped trait object implementing LlmProvider
-pub fn create_provider(provider_type: ProviderType, api_key: String, model: String, supported_tasks: Vec<TaskDefinition>, enabled: bool) -> Arc<dyn LlmProvider + Send + Sync> {
+pub fn create_provider(provider_type: ProviderType, api_key: String, model: String, supported_tasks: Vec<TaskDefinition>, enabled: bool, endpoint_url: Option<String>) -> Arc<dyn LlmProvider + Send + Sync> {
     let supported_tasks: HashMap<String, TaskDefinition> = supported_tasks
         .into_iter()  
         .map(|task| (task.name.clone(), task)) 
@@ -118,5 +119,6 @@ pub fn create_provider(provider_type: ProviderType, api_key: String, model: Stri
         ProviderType::OpenAI => Arc::new(OpenAIProvider::new(api_key, model, supported_tasks, enabled)),
         ProviderType::Mistral => Arc::new(MistralProvider::new(api_key, model, supported_tasks, enabled)),
         ProviderType::Google => Arc::new(GoogleProvider::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::Ollama => Arc::new(OllamaProvider::new(api_key, model, supported_tasks, enabled, endpoint_url))
     }
 }

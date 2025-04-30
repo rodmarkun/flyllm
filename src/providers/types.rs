@@ -6,7 +6,8 @@ pub enum ProviderType {
     Anthropic,
     OpenAI,
     Mistral,
-    Google
+    Google,
+    Ollama
 }
 
 /// Unified request structure used across all providers
@@ -49,6 +50,7 @@ impl std::fmt::Display for ProviderType {
             ProviderType::OpenAI => write!(f, "OpenAI"),
             ProviderType::Mistral => write!(f, "Mistral"),
             ProviderType::Google => write!(f, "Google"),
+            ProviderType::Ollama => write!(f, "Ollama"),
         }
     }
 }

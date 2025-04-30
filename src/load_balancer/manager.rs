@@ -5,12 +5,14 @@ use crate::load_balancer::instances::{LlmInstance, InstanceMetrics};
 use crate::load_balancer::strategies;
 use crate::load_balancer::strategies::LoadBalancingStrategy;
 use crate::load_balancer::tasks::TaskDefinition;
+use crate::load_balancer::builder::LlmManagerBuilder; 
 use crate::{constants, create_provider, ProviderType};
 use std::time::Instant;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use futures::future::join_all;
-use log::{debug, info, warn}; 
+use log::{debug, info, warn};
+use serde_json::{Value, json};
 
 /// User-facing request for LLM generation
 #[derive(Clone)]
@@ -18,6 +20,56 @@ pub struct GenerationRequest {
     pub prompt: String,
     pub task: Option<String>,
     pub params: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl GenerationRequest {
+    /// Creates a builder for a GenerationRequest.
+    pub fn builder(prompt: impl Into<String>) -> GenerationRequestBuilder {
+        GenerationRequestBuilder::new(prompt.into())
+    }
+}
+
+#[derive(Default)] // Add default for builder pattern
+pub struct GenerationRequestBuilder {
+    prompt: String,
+    task: Option<String>,
+    params: Option<HashMap<String, Value>>,
+}
+
+impl GenerationRequestBuilder {
+    // Private constructor, force using GenerationRequest::builder
+    fn new(prompt: String) -> Self {
+         GenerationRequestBuilder {
+              prompt,
+              ..Default::default()
+         }
+    }
+
+    /// Sets the target task for this request.
+    pub fn task(mut self, name: impl Into<String>) -> Self {
+        self.task = Some(name.into());
+        self
+    }
+
+    /// Adds or overrides a parameter specifically for this request.
+    pub fn param(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.params.get_or_insert_with(HashMap::new).insert(key.into(), value.into());
+        self
+    }
+
+    // Optional: Specific helpers
+    pub fn max_tokens(self, tokens: u32) -> Self {
+        self.param("max_tokens", json!(tokens))
+    }
+
+    /// Builds the final GenerationRequest.
+    pub fn build(self) -> GenerationRequest {
+        GenerationRequest {
+            prompt: self.prompt,
+            task: self.task,
+            params: self.params,
+        }
+    }
 }
 
 /// Internal request structure with additional retry information
@@ -59,12 +111,12 @@ pub struct LlmManagerResponse {
 /// - Implements retries and fallbacks
 /// - Tracks performance metrics and token usage
 pub struct LlmManager {
-    instances: Arc<Mutex<Vec<LlmInstance>>>,
-    strategy: Arc<Mutex<Box<dyn LoadBalancingStrategy + Send + Sync>>>,
-    tasks_to_instances: Arc<Mutex<HashMap<String, Vec<usize>>>>,
-    instance_counter: Mutex<usize>,
-    max_retries: usize,
-    total_usage: Mutex<HashMap<usize, TokenUsage>>
+    pub instances: Arc<Mutex<Vec<LlmInstance>>>,
+    pub strategy: Arc<Mutex<Box<dyn LoadBalancingStrategy + Send + Sync>>>,
+    pub tasks_to_instances: Arc<Mutex<HashMap<String, Vec<usize>>>>,
+    pub instance_counter: Mutex<usize>,
+    pub max_retries: usize,
+    pub total_usage: Mutex<HashMap<usize, TokenUsage>>
 }
 
 impl LlmManager {
@@ -78,6 +130,11 @@ impl LlmManager {
             max_retries: constants::DEFAULT_MAX_TRIES,
             total_usage: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Creates a new builder to configure the LlmManager.
+    pub fn builder() -> LlmManagerBuilder {
+        LlmManagerBuilder::new()
     }
 
     /// Create a new LlmManager with a custom load balancing strategy
@@ -95,6 +152,37 @@ impl LlmManager {
         }
     }
 
+    /// Constructor used by the builder.
+    pub fn new_with_strategy_and_retries(strategy: Box<dyn LoadBalancingStrategy + Send + Sync>, max_retries: usize) -> Self {
+        Self {
+            instances: Arc::new(Mutex::new(Vec::new())),
+            strategy: Arc::new(Mutex::new(strategy)),
+            tasks_to_instances: Arc::new(Mutex::new(HashMap::new())),
+            instance_counter: Mutex::new(0),
+            max_retries, // Use passed value
+            total_usage: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn add_provider_internal(
+        &mut self,
+        provider_type: ProviderType,
+        api_key: String,
+        model: String,
+        tasks: Vec<TaskDefinition>, // Takes resolved TaskDefinitions
+        enabled: bool,
+        custom_endpoint: Option<String>
+    ) {
+        debug!("Creating provider with model {}", model);
+        let provider = create_provider(provider_type, api_key, model.clone(), tasks.clone(), enabled, custom_endpoint);
+        self.add_instance(provider); 
+        info!("Added Provider Instance ({}) - Model: {} - Supports Tasks: {:?}",
+              provider_type,
+              model,
+              tasks.iter().map(|t| t.name.as_str()).collect::<Vec<&str>>()
+        );
+    }
+
     /// Add a new provider by creating it from basic parameters
     ///
     /// # Parameters
@@ -103,9 +191,9 @@ impl LlmManager {
     /// * `model` - Model identifier to use
     /// * `tasks` - List of tasks this provider supports
     /// * `enabled` - Whether this provider should be enabled
-    pub fn add_provider(&mut self, provider_type: ProviderType, api_key: String, model: String, tasks: Vec<TaskDefinition>, enabled: bool){
+    pub fn add_provider(&mut self, provider_type: ProviderType, api_key: String, model: String, tasks: Vec<TaskDefinition>, enabled: bool, custom_endpoint: Option<String>){
         debug!("Creating provider with model {}", model);
-        let provider = create_provider(provider_type, api_key, model, tasks, enabled);
+        let provider = create_provider(provider_type, api_key, model, tasks, enabled, custom_endpoint);
         self.add_instance(provider);
     }
 

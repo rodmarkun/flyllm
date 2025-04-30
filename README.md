@@ -8,13 +8,14 @@ FlyLLM is a Rust library that provides a load-balanced, multi-provider client fo
 
 ## Features
 
-- **Multiple Provider Support** 🌐: Unified interface for OpenAI, Anthropic, Google, and Mistral APIs
+- **Multiple Provider Support** 🌐: Unified interface for OpenAI, Anthropic, Google, Ollama and Mistral APIs
 - **Task-Based Routing** 🧭: Route requests to the most appropriate provider based on predefined tasks
 - **Load Balancing** ⚖️: Automatically distribute load across multiple provider instances
 - **Failure Handling** 🛡️: Retry mechanisms and automatic failover between providers
 - **Parallel Processing** ⚡: Process multiple requests concurrently for improved throughput
 - **Custom Parameters** 🔧: Set provider-specific parameters per task or request
 - **Usage Tracking** 📊: Monitor token consumption for cost management
+- **Builder Pattern Configuration** ✨: Fluent and readable setup for tasks and providers.
 
 ## Installation
 
@@ -22,7 +23,7 @@ Add FlyLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-flyllm = "0.1.0"
+flyllm = "0.2.0"
 tokio = { version = "1", features = ["full"] } # For async runtime
 ```
 
@@ -51,55 +52,54 @@ ID    Provider        Model                          Prompt Tokens   Completion 
 
 ## Usage Examples
 
-You can activate FlyLLM's debug messages by setting the environment variable `RUST_LOG` to the value `"debug"`.
+The following sections describe the usage of flyllm. You can also check out the example given in `examples/task_routing.rs`! To activate FlyLLM's debug messages by setting the environment variable `RUST_LOG` to the value `"debug"`.
 
 ### Quick Start
 
 ```rust
 use flyllm::{
-    ProviderType, LlmManager, GenerationRequest, TaskDefinition,
-    use_logging
+    ProviderType, LlmManager, GenerationRequest, TaskDefinition, LlmResult,
+    use_logging, // Helper to setup basic logging
 };
-use std::collections::HashMap;
-use serde_json::json;
+use std::env; // To read API keys from environment variables
 
 #[tokio::main]
-async fn main() {
-    // Initialize logging
+async fn main() -> LlmResult<()> { // Use LlmResult for error handling
+    // Initialize logging (optional, requires log and env_logger crates)
     use_logging();
 
-    // Create an LLM manager
-    let mut manager = LlmManager::new();
+    // Retrieve API key from environment
+    let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
 
-    // Define a task with specific parameters
-    let summary_task = TaskDefinition {
-        name: "summary".to_string(),
-        parameters: HashMap::from([
-            ("max_tokens".to_string(), json!(500)),
-            ("temperature".to_string(), json!(0.3)),
-        ]),
-    };
+    // Configure the LLM manager using the builder pattern
+    let manager = LlmManager::builder()
+        // Define a task with specific default parameters
+        .define_task(
+            TaskDefinition::new("summary")
+                .with_max_tokens(500)    // Set max tokens for this task
+                .with_temperature(0.3) // Set temperature for this task
+        )
+        // Add a provider instance and specify the tasks it supports
+        .add_provider(
+            ProviderType::OpenAI,
+            "gpt-3.5-turbo",
+            &openai_api_key, // Pass the API key
+        )
+        .supports("summary") // Link the provider to the "summary" task
+        // Finalize the manager configuration
+        .build()?; // Use '?' for error propagation
 
-    // Add a provider with its supported tasks
-    manager.add_provider(
-        ProviderType::OpenAI,
-        std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set"),
-        "gpt-3.5-turbo".to_string(),
-        vec![summary_task.clone()],
-        true,
-    );
+    // Create a generation request using the builder pattern
+    let request = GenerationRequest::builder(
+        "Summarize the following text: Climate change refers to long-term shifts in temperatures..."
+    )
+    .task("summary") // Specify the task for routing
+    .build();
 
-    // Create a request
-    let request = GenerationRequest {
-        prompt: "Summarize the following text: Climate change refers to long-term shifts in temperatures...".to_string(),
-        task: Some("summary".to_string()),
-        params: None,
-    };
-
-    // Generate response 
-    // The Manager will automatically choose a provider fit for the task according to the selected strategy
+    // Generate response sequentially (for a single request)
+    // The Manager will automatically choose the configured OpenAI provider for the "summary" task.
     let responses = manager.generate_sequentially(vec![request]).await;
-    
+
     // Handle the response
     if let Some(response) = responses.first() {
         if response.success {
@@ -108,81 +108,134 @@ async fn main() {
             println!("Error: {}", response.error.as_ref().unwrap_or(&"Unknown error".to_string()));
         }
     }
+
+    // Print token usage statistics
+    manager.print_token_usage();
+
+    Ok(())
 }
 ```
 
 ### Adding Multiple Providers
 
+Configure the LlmManager with various providers, each supporting different tasks.
+
 ```rust
-// Add OpenAI
-manager.add_provider(
-    ProviderType::OpenAI,
-    openai_api_key,
-    "gpt-4-turbo".to_string(),
-    vec![summary_task.clone(), qa_task.clone()],
-    true,
-);
+use flyllm::{ProviderType, LlmManager, TaskDefinition, LlmResult};
+use std::env;
 
-// Add Anthropic
-manager.add_provider(
-    ProviderType::Anthropic,
-    anthropic_api_key,
-    "claude-3-sonnet-20240229".to_string(),
-    vec![creative_writing_task.clone(), code_generation_task.clone()],
-    true,
-);
+async fn configure_manager() -> LlmResult<LlmManager> {
+    // --- API Keys ---
+    let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
+    let anthropic_api_key = env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
+    let mistral_api_key = env::var("MISTRAL_API_KEY").expect("MISTRAL_API_KEY not set");
+    let google_api_key = env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY not set");
+    // Ollama typically doesn't require an API key for local instances
 
-// Add Mistral
-manager.add_provider(
-    ProviderType::Mistral,
-    mistral_api_key,
-    "mistral-large-latest".to_string(),
-    vec![summary_task.clone(), translation_task.clone()],
-    true,
-);
+    let manager = LlmManager::builder()
+        // Define all tasks first
+        .define_task(TaskDefinition::new("summary").with_max_tokens(500).with_temperature(0.3))
+        .define_task(TaskDefinition::new("qa").with_max_tokens(1000))
+        .define_task(TaskDefinition::new("creative_writing").with_max_tokens(1500).with_temperature(0.9))
+        .define_task(TaskDefinition::new("code_generation").with_temperature(0.1))
+        .define_task(TaskDefinition::new("translation")) // Task with default provider parameters
 
-// Add Google (Gemini)
-manager.add_provider(
-    ProviderType::Google,
-    google_api_key,
-    "gemini-1.5-pro".to_string(),
-    vec![qa_task.clone(), creative_writing_task.clone()],
-    true,
-);
+        // Add OpenAI provider supporting summary and QA
+        .add_provider(ProviderType::OpenAI, "gpt-4-turbo", &openai_api_key)
+            .supports_many(&["summary", "qa"]) // Assign multiple tasks
+
+        // Add Anthropic provider supporting creative writing and code generation
+        .add_provider(ProviderType::Anthropic, "claude-3-sonnet-20240229", &anthropic_api_key)
+            .supports("creative_writing")
+            .supports("code_generation")
+
+        // Add Mistral provider supporting summary and translation
+        .add_provider(ProviderType::Mistral, "mistral-large-latest", &mistral_api_key)
+            .supports("summary")
+            .supports("translation")
+
+        // Add Google (Gemini) provider supporting QA and creative writing
+        .add_provider(ProviderType::Google, "gemini-1.5-pro", &google_api_key)
+            .supports("qa")
+            .supports("creative_writing")
+
+        // Add a local Ollama provider supporting summary and code generation
+        .add_provider(ProviderType::Ollama, "llama3:8b", "") // API key often empty for local Ollama
+            .supports("summary")
+            .supports("code_generation")
+            .custom_endpoint("http://localhost:11434/api/chat") // Optional: Specify if not default
+
+        // Finalize configuration
+        .build()?;
+
+    println!("LlmManager configured with multiple providers.");
+    Ok(manager)
+}
 ```
 
 ### Task-Based Routing
 
+Define tasks with specific default parameters and create requests targeting those tasks. FlyLLM routes the request to a provider configured to support that task.
+
 ```rust
-// Define tasks with specific parameters
-let summary_task = TaskDefinition {
-    name: "summary".to_string(),
-    parameters: HashMap::from([
-        ("max_tokens".to_string(), json!(500)),
-        ("temperature".to_string(), json!(0.3)),
-    ]),
-};
+use flyllm::{LlmManager, GenerationRequest, TaskDefinition, LlmResult};
+use std::env;
 
-let creative_writing_task = TaskDefinition {
-    name: "creative_writing".to_string(),
-    parameters: HashMap::from([
-        ("max_tokens".to_string(), json!(1500)),
-        ("temperature".to_string(), json!(0.9)),
-    ]),
-};
+// Assume manager is configured as shown in "Adding Multiple Providers"
+async fn route_by_task(manager: LlmManager) -> LlmResult<()> {
 
-// Create requests with different tasks
-let summary_request = GenerationRequest {
-    prompt: "Summarize the following article: ...".to_string(),
-    task: Some("summary".to_string()),
-    params: None,
-};
+    // Define tasks centrally in the builder (shown conceptually here)
+    // LlmManager::builder()
+    //     .define_task(
+    //         TaskDefinition::new("summary")
+    //             .with_max_tokens(500)
+    //             .with_temperature(0.3)
+    //     )
+    //     .define_task(
+    //         TaskDefinition::new("creative_writing")
+    //             .with_max_tokens(1500)
+    //             .with_temperature(0.9)
+    //     )
+    //     // ... add providers supporting these tasks ...
+    //     .build()?;
 
-let story_request = GenerationRequest {
-    prompt: "Write a short story about a robot discovering emotions.".to_string(),
-    task: Some("creative_writing".to_string()),
-    params: None,
-};
+    // Create requests with different tasks using the request builder
+    let summary_request = GenerationRequest::builder(
+        "Summarize the following article about renewable energy: ..."
+    )
+    .task("summary") // This request will be routed to providers supporting "summary"
+    .build();
+
+    let story_request = GenerationRequest::builder(
+        "Write a short story about a futuristic city powered by algae."
+    )
+    .task("creative_writing") // This request uses the "creative_writing" task defaults
+    .build();
+
+    // Example: Override task defaults for a specific request
+    let short_story_request = GenerationRequest::builder(
+        "Write a VERY short story about a time traveler meeting a dinosaur."
+    )
+    .task("creative_writing") // Based on "creative_writing" task...
+    .max_tokens(200)        // ...but override max_tokens for this specific request
+    .param("temperature", 0.95) // Can override any parameter
+    .build();
+
+    // Process requests (e.g., sequentially)
+    let requests = vec![summary_request, story_request, short_story_request];
+    let results = manager.generate_sequentially(requests).await;
+
+    // Handle results...
+    for (i, result) in results.iter().enumerate() {
+         println!("Request {}: Success = {}, Content/Error = {}",
+            i + 1,
+            result.success,
+            if result.success { &result.content[..std::cmp::min(result.content.len(), 50)] } else { result.error.as_deref().unwrap_or("Unknown") }
+        );
+    }
+
+    Ok(())
+}
 ```
 
 ### Parallel Processing
@@ -222,14 +275,3 @@ If you want to support FlyLLM, you can:
 - **Star** :star: the project in Github!
 - **Donate** :coin: to my [Ko-fi](https://ko-fi.com/rodmarkun) page!
 - **Share** :heart: the project with your friends!
-
-## To-Do List
-Next features planned:
-
-- [x] ~~Usage tracking~~
-- [ ] Log redirection to file
-- [ ] Streaming responses
-- [x] Internal documentation
-- [ ] Unit & Integration tests
-- [ ] Builder Pattern
-- [ ] Aggregation of more strategies
