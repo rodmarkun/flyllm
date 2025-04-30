@@ -241,13 +241,6 @@ async fn route_by_task(manager: LlmManager) -> LlmResult<()> {
 ### Parallel Processing
 
 ```rust
-// Create multiple requests
-let requests = vec![
-    GenerationRequest { /* ... */ },
-    GenerationRequest { /* ... */ },
-    GenerationRequest { /* ... */ },
-];
-
 // Process in parallel
 let parallel_results = manager.batch_generate(requests).await;
 
