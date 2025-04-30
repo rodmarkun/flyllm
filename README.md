@@ -3,7 +3,7 @@
 FlyLLM is a Rust library that provides a load-balanced, multi-provider client for Large Language Models. It enables developers to seamlessly work with multiple LLM providers (OpenAI, Anthropic, Google, Mistral...) through a unified API with request routing, load balancing, and failure handling.
 
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/1af28347-ff30-4e25-8112-af066e5553d5" width="300" alt="FlyLLM Logo">
+  <img src="https://github.com/user-attachments/assets/ea20970d-5be1-4dae-8038-bea1c046e249" width="300" alt="FlyLLM Logo">
 </div>
 
 ## Features
