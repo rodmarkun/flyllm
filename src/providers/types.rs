@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 
 /// Enum representing the different LLM providers supported
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum ProviderType {
     Anthropic,
     OpenAI,
@@ -40,6 +40,13 @@ pub struct TokenUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
+}
+
+/// Information about an LLM model
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelInfo {
+    pub name: String,
+    pub provider: ProviderType,
 }
 
 /// Display implementation for ProviderType

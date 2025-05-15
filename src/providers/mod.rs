@@ -17,8 +17,10 @@ pub mod provider;
 pub mod google;
 pub mod mistral;
 pub mod ollama;
+pub mod model_discovery;
 
-pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage};
+pub use model_discovery::ModelDiscovery;
+pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage, ModelInfo};
 pub use provider::{LlmProvider, create_provider};
 pub use anthropic::AnthropicProvider;
 pub use openai::OpenAIProvider;

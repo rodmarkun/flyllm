@@ -1,9 +1,11 @@
 use flyllm::{
     ProviderType, LlmManager, GenerationRequest, LlmManagerResponse, TaskDefinition, LlmResult,
-    use_logging,
+    use_logging, ModelDiscovery, ModelInfo
 };
 use std::env;
 use std::time::Instant;
+use std::collections::HashMap;
+use futures::future::join_all;
 use log::info;
 
 #[tokio::main]
@@ -17,6 +19,9 @@ async fn main() -> LlmResult<()> {
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let mistral_api_key = env::var("MISTRAL_API_KEY").expect("MISTRAL_API_KEY not set");
     let google_api_key = env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY not set");
+
+    // --- Fetch and print available models ---
+    print_available_models(&anthropic_api_key, &openai_api_key, &mistral_api_key, &google_api_key).await;
 
     // --- Configure Manager using Builder ---
     let manager = LlmManager::builder()
@@ -147,6 +152,78 @@ async fn main() -> LlmResult<()> {
     manager.print_token_usage();
 
     Ok(())
+}
+
+/// Fetches models from all providers and prints them in a table format
+async fn print_available_models(
+    anthropic_api_key: &str,
+    openai_api_key: &str,
+    mistral_api_key: &str,
+    google_api_key: &str
+) {
+    println!("\n=== AVAILABLE MODELS ===");
+    
+    // Clone the API keys for use in the spawned tasks
+    let anthropic_key = anthropic_api_key.to_string();
+    let openai_key = openai_api_key.to_string();
+    let mistral_key = mistral_api_key.to_string();
+    let google_key = google_api_key.to_string();
+    
+    // Fetch models from different providers in parallel
+    let futures = vec![
+        tokio::spawn(async move { ModelDiscovery::list_anthropic_models(&anthropic_key).await }),
+        tokio::spawn(async move { ModelDiscovery::list_openai_models(&openai_key).await }),
+        tokio::spawn(async move { ModelDiscovery::list_mistral_models(&mistral_key).await }),
+        tokio::spawn(async move { ModelDiscovery::list_google_models(&google_key).await }),
+        tokio::spawn(async { ModelDiscovery::list_ollama_models(None).await }),
+    ];
+    
+    let results = join_all(futures).await;
+    
+    // Create a map to store models by provider
+    let mut models_by_provider: HashMap<ProviderType, Vec<ModelInfo>> = HashMap::new();
+    
+    // Define the provider order for each index
+    let providers = [
+        ProviderType::Anthropic,
+        ProviderType::OpenAI,
+        ProviderType::Mistral, 
+        ProviderType::Google,
+        ProviderType::Ollama
+    ];
+    
+    // Process results
+    for (i, result) in results.into_iter().enumerate() {
+        if i >= providers.len() { continue; }
+        let provider = providers[i];
+        
+        match result {
+            Ok(Ok(models)) => {
+                models_by_provider.insert(provider, models);
+            },
+            Ok(Err(e)) => {
+                println!("Error fetching {} models: {}", provider, e);
+            },
+            Err(e) => {
+                println!("Task error fetching {} models: {}", provider, e);
+            }
+        }
+    }
+    
+    // Print models in a table format
+    println!("\n{:<15} {:<40}", "PROVIDER", "MODEL NAME");
+    println!("{}", "=".repeat(55));
+    
+    // Print models in the specified provider order
+    for provider in providers.iter() {
+        if let Some(models) = models_by_provider.get(provider) {
+            for model in models {
+                println!("{:<15} {:<40}", provider.to_string(), model.name);
+            }
+            // Add a separator between providers
+            println!("{}", "-".repeat(55));
+        }
+    }
 }
 
 fn print_results(results: &[LlmManagerResponse]) {

@@ -54,6 +54,8 @@ pub use providers::{
     create_provider,
     AnthropicProvider,
     OpenAIProvider,
+    ModelInfo,
+    ModelDiscovery
 };
 
 pub use errors::{LlmError, LlmResult};

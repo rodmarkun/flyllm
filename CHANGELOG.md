@@ -2,6 +2,10 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.2.1] - 2025-05-12
+### Added
+- Capability of listing all available models from all providers
+
 ## [0.2.0] - 2025-04-30
 ### Added
 - Ollama provider support
