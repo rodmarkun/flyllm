@@ -143,15 +143,14 @@ impl LlmManagerBuilder {
 
     /// Consumes the builder and constructs the `LlmManager`.
     /// Returns an error if a referenced task was not defined.
-    pub fn build(self) -> LlmResult<LlmManager> {
+    pub async fn build(self) -> LlmResult<LlmManager> {
         let mut manager = LlmManager::new_with_strategy_and_retries(self.strategy, self.max_retries);
 
         for provider_config in self.providers_to_build {
             // Resolve TaskDefinition structs from names
             let mut provider_tasks: Vec<TaskDefinition> = Vec::new();
             for task_name in &provider_config.supported_task_names {
-                match self.defined_tasks.get(task_name) 
-                {
+                match self.defined_tasks.get(task_name) {
                     Some(task_def) => provider_tasks.push(task_def.clone()),
                     None => return Err(LlmError::ConfigError(format!(
                         "Build failed: Task '{}' referenced by provider '{}' ({}) was not defined using define_task()",
@@ -167,12 +166,17 @@ impl LlmManagerBuilder {
                 provider_tasks,
                 provider_config.enabled,
                 provider_config.custom_endpoint,
-            );
+            ).await; // Add await here
             debug!("Built and added provider: {} ({})", provider_config.provider_type, provider_config.model);
         }
 
-        if manager.instances.lock().unwrap().is_empty() {
-             log::warn!("LlmManager built with no provider instances.");
+        // Check if the manager has instances
+        let instances = manager.instances.lock().await;
+        let is_empty = instances.is_empty();
+        drop(instances);
+        
+        if is_empty {
+            log::warn!("LlmManager built with no provider instances.");
         }
 
         Ok(manager)

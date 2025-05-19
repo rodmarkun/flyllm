@@ -100,7 +100,7 @@ impl GoogleProvider {
         let mut contents = Vec::new();
         let mut system_prompt: Option<String> = None;
         let mut first_user_message_index: Option<usize> = None;
-        for (i, msg) in messages.iter().enumerate() {
+        for (_, msg) in messages.iter().enumerate() {
              match msg.role.as_str() {
                  "system" => {
                      if system_prompt.is_some() {

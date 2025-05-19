@@ -2,6 +2,10 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.2.2] - 2025-05-19
+### Added
+- Made the library entirely asynchronous, making the library more suitable for use in async contexts
+
 ## [0.2.1] - 2025-05-12
 ### Added
 - Capability of listing all available models from all providers

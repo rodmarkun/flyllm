@@ -76,9 +76,11 @@ async fn main() -> LlmResult<()> {
          //     .enabled(false) // Explicitly disable
 
         // Finalize the manager configuration
-        .build()?; 
+        .build().await?; // Added .await here
 
-    info!("LlmManager configured with {} providers.", manager.get_provider_stats().len());
+    // Get provider stats asynchronously
+    let provider_stats = manager.get_provider_stats().await;
+    info!("LlmManager configured with {} providers.", provider_stats.len());
 
     // --- Define Requests using Builder ---
     let requests = vec![
@@ -149,7 +151,8 @@ async fn main() -> LlmResult<()> {
          println!("Parallel execution finished too quickly to measure speedup reliably.");
     }
 
-    manager.print_token_usage();
+    // Print token usage asynchronously
+    manager.print_token_usage().await;
 
     Ok(())
 }

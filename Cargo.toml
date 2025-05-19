@@ -1,6 +1,6 @@
 [package]
 name = "flyllm"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "A rust library for unifying LLM backends as an abstraction layer with load balancing."
 authors = ["Pablo Rodríguez <rodmarprogrammer@gmail.com>"]
