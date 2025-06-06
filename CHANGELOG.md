@@ -2,6 +2,10 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.2.2] - 2025-06-06
+### Added
+- Rate limiting with wait for whenever all providers are overloaded
+
 ## [0.2.2] - 2025-05-19
 ### Added
 - Made the library entirely asynchronous, making the library more suitable for use in async contexts
