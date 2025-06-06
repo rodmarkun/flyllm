@@ -2,7 +2,7 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
-## [0.2.2] - 2025-06-06
+## [0.2.3] - 2025-06-06
 ### Added
 - Rate limiting with wait for whenever all providers are overloaded
 
