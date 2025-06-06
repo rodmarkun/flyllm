@@ -372,17 +372,30 @@ impl LlmManager {
                 Ok((content, instance_id)) => {
                     let duration = start_time.elapsed();
                     info!("Request successful on attempt {} with instance {} after {:?}", attempts + 1, instance_id, duration); 
-                    debug!("generate_response returning Ok for task: {:?}", task); 
                     return Ok(content);
                 },
                 Err((error, instance_id)) => {
                     warn!("Attempt {} failed with instance {}: {}", attempts + 1, instance_id, error);
-                    failed_instances.push(instance_id);
-                    attempts += 1;
+                    
+                    // Check if this is a rate limit error
+                    if Self::is_rate_limit_error(&error) {
+                        warn!("Rate limit detected for instance {}. Waiting before retry...", instance_id);
+                        
+                        // Wait before retrying (exponential backoff)
+                        let wait_time = std::time::Duration::from_secs(2_u64.pow(attempts as u32).min(60));
+                        tokio::time::sleep(wait_time).await;
+                        
+                        // Don't mark this instance as failed for rate limits
+                        // Just increment attempts and try again
+                        attempts += 1;
+                    } else {
+                        // For non-rate-limit errors, mark instance as failed
+                        failed_instances.push(instance_id);
+                        attempts += 1;
+                    }
 
                     if attempts > max_retries {
-                         warn!("Max retries ({}) reached for task: {:?}. Returning last error.", max_retries + 1, task); 
-                         debug!("generate_response returning Err for task: {:?}", task); 
+                        warn!("Max retries ({}) reached for task: {:?}. Returning last error.", max_retries + 1, task); 
                         return Err(error);
                     }
 
@@ -688,6 +701,21 @@ impl LlmManager {
                     usage.total_tokens
                 );
             }
+        }
+}
+
+/// Check if an error is due to rate limiting or overloading
+    pub fn is_rate_limit_error(error: &LlmError) -> bool {
+        match error {
+            LlmError::ApiError(msg) => {
+                let msg_lower = msg.to_lowercase();
+                msg_lower.contains("overloaded") || 
+                msg_lower.contains("rate limit") || 
+                msg_lower.contains("too many requests") ||
+                msg_lower.contains("quota exceeded") ||
+                msg_lower.contains("tokens")
+            },
+            _ => false,
         }
     }
 }

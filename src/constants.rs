@@ -19,3 +19,7 @@ pub const GOOGLE_API_ENDPOINT_PREFIX: &str = "https://generativelanguage.googlea
 
 // Ollama
 pub const OLLAMA_API_ENDPOINT: &str = "http://localhost:11434/api/chat";
+
+// Rate limiting
+pub const DEFAULT_RATE_LIMIT_WAIT_SECS: u64 = 2;
+pub const MAX_RATE_LIMIT_WAIT_SECS: u64 = 60;
