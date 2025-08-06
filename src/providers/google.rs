@@ -1,5 +1,5 @@
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::provider::{LlmProvider, BaseProvider};
+use crate::providers::instances::{LlmInstance, BaseInstance};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
@@ -11,12 +11,11 @@ use std::collections::HashMap;
 use log::debug;
 
 /// Provider implementation for Google's Gemini AI models
-pub struct GoogleProvider {
-    base: BaseProvider,
+pub struct GoogleInstance {
+    base: BaseInstance,
 }
 
 /// Request structure for Google's Gemini API
-/// Maps to the format expected by Google's generateContent endpoint
 #[derive(Serialize)]
 struct GoogleGenerateContentRequest {
     contents: Vec<GoogleContent>,
@@ -71,7 +70,7 @@ struct GoogleCandidate {
 }
 
 
-impl GoogleProvider {
+impl GoogleInstance {
     /// Creates a new Google provider instance
     ///
     /// # Parameters
@@ -80,7 +79,7 @@ impl GoogleProvider {
     /// * `supported_tasks` - Map of tasks this provider supports
     /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
-        let base = BaseProvider::new("google".to_string(), api_key, model, supported_tasks, enabled);
+        let base = BaseInstance::new("google".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 
@@ -149,7 +148,7 @@ impl GoogleProvider {
 }
 
 #[async_trait]
-impl LlmProvider for GoogleProvider {
+impl LlmInstance for GoogleInstance {
     /// Generates a completion using Google's Gemini API
     ///
     /// # Parameters

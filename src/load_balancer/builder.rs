@@ -3,10 +3,11 @@ use crate::load_balancer::strategies::{LoadBalancingStrategy, LeastRecentlyUsedS
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::{ProviderType, constants}; 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use log::debug;
 use super::LlmManager; 
 
-// --- Internal Helper Struct for Builder ---
+/// Internal helper struct for Builder
 #[derive(Clone)] 
 struct ProviderConfig {
     provider_type: ProviderType,
@@ -17,12 +18,13 @@ struct ProviderConfig {
     custom_endpoint: Option<String>,
 }
 
-// --- LlmManager Builder ---
+/// LlmManager Builder
 pub struct LlmManagerBuilder {
     defined_tasks: HashMap<String, TaskDefinition>,
     providers_to_build: Vec<ProviderConfig>,
     strategy: Box<dyn LoadBalancingStrategy + Send + Sync>,
     max_retries: usize,
+    debug_folder: Option<PathBuf>
 }
 
 impl LlmManagerBuilder {
@@ -33,6 +35,7 @@ impl LlmManagerBuilder {
             providers_to_build: Vec::new(),
             strategy: Box::new(LeastRecentlyUsedStrategy::new()), // Default strategy
             max_retries: constants::DEFAULT_MAX_TRIES, // Default retries
+            debug_folder: None
         }
     }
 
@@ -56,7 +59,7 @@ impl LlmManagerBuilder {
 
     /// Begins configuring a new provider instance.
     /// Subsequent calls like `.supports()`, `.enabled()`, `.custom_endpoint()` will apply to this provider.
-    pub fn add_provider(
+    pub fn add_instance(
         mut self,
         provider_type: ProviderType,
         model: impl Into<String>,
@@ -75,7 +78,7 @@ impl LlmManagerBuilder {
     }
 
     /// Specifies that the *last added* provider supports the task with the given name.
-    /// Panics if `add_provider` was not called before this.
+    /// Panics if `add_instance` was not called before this.
     pub fn supports(mut self, task_name: &str) -> Self {
         match self.providers_to_build.last_mut() {
             Some(last_provider) => {
@@ -86,7 +89,7 @@ impl LlmManagerBuilder {
                 last_provider.supported_task_names.push(task_name.to_string());
             }
             None => {
-                panic!("'.supports()' called before '.add_provider()'");
+                panic!("'.supports()' called before '.add_instance()'");
             }
         }
         self
@@ -126,6 +129,11 @@ impl LlmManagerBuilder {
         self
     }
 
+    pub fn debug_folder(mut self, path: impl Into<PathBuf>) -> Self {
+        self.debug_folder = Some(path.into());
+        self
+    }
+
     /// Sets a custom endpoint for the *last added* provider.
     /// Panics if `add_provider` was not called before this.
     pub fn custom_endpoint(mut self, endpoint: impl Into<String>) -> Self {
@@ -145,6 +153,9 @@ impl LlmManagerBuilder {
     /// Returns an error if a referenced task was not defined.
     pub async fn build(self) -> LlmResult<LlmManager> {
         let mut manager = LlmManager::new_with_strategy_and_retries(self.strategy, self.max_retries);
+        
+        // Set debug folder if specified
+        manager.debug_folder = self.debug_folder;
 
         for provider_config in self.providers_to_build {
             // Resolve TaskDefinition structs from names
@@ -159,21 +170,21 @@ impl LlmManagerBuilder {
                 }
             }
 
-            manager.add_provider_internal( 
+            manager.add_instance( 
                 provider_config.provider_type,
                 provider_config.api_key,
                 provider_config.model.clone(),
                 provider_tasks,
                 provider_config.enabled,
                 provider_config.custom_endpoint,
-            ).await; // Add await here
+            ).await;
             debug!("Built and added provider: {} ({})", provider_config.provider_type, provider_config.model);
         }
 
         // Check if the manager has instances
-        let instances = manager.instances.lock().await;
-        let is_empty = instances.is_empty();
-        drop(instances);
+        let trackers = manager.trackers.lock().await;
+        let is_empty = trackers.is_empty();
+        drop(trackers);
         
         if is_empty {
             log::warn!("LlmManager built with no provider instances.");

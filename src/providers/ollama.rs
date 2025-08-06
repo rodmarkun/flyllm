@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::provider::{LlmProvider, BaseProvider};
+use crate::providers::instances::{LlmInstance, BaseInstance};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
@@ -10,8 +10,8 @@ use serde::{Serialize, Deserialize};
 use url::Url;
 
 /// Provider implementation for Ollama (local LLMs)
-pub struct OllamaProvider {
-    base: BaseProvider,
+pub struct OllamaInstance {
+    base: BaseInstance,
     // Specific URL for this provider instance
     endpoint_url: String,
 }
@@ -47,7 +47,7 @@ struct OllamaResponse {
     eval_count: u32, // Corresponds roughly to completion tokens
 }
 
-impl OllamaProvider {
+impl OllamaInstance {
     /// Creates a new Ollama provider instance
     ///
     /// # Parameters
@@ -83,7 +83,7 @@ impl OllamaProvider {
         };
 
         // Create BaseProvider with the actual API key (even if empty/unused)
-        let base = BaseProvider::new("ollama".to_string(), api_key, model, supported_tasks, enabled);
+        let base = BaseInstance::new("ollama".to_string(), api_key, model, supported_tasks, enabled);
 
         Self {
             base,
@@ -93,7 +93,7 @@ impl OllamaProvider {
 }
 
 #[async_trait]
-impl LlmProvider for OllamaProvider {
+impl LlmInstance for OllamaInstance {
     /// Generates a completion using Ollama's API
     ///
     /// # Parameters

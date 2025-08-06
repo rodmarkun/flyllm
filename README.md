@@ -15,6 +15,7 @@ FlyLLM is a Rust library that provides a load-balanced, multi-provider client fo
 - **Parallel Processing** ⚡: Process multiple requests concurrently for improved throughput
 - **Custom Parameters** 🔧: Set provider-specific parameters per task or request
 - **Usage Tracking** 📊: Monitor token consumption for cost management
+- **Debug Logging** 🔍: Optional request/response logging to JSON files for debugging and analysis
 - **Builder Pattern Configuration** ✨: Fluent and readable setup for tasks and providers.
 
 ## Installation
@@ -23,8 +24,8 @@ Add FlyLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-flyllm = "0.2.0"
-tokio = { version = "1", features = ["full"] } # For async runtime
+flyllm = "0.3.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] } # For async runtime
 ```
 
 ## Architecture
@@ -58,7 +59,7 @@ The following sections describe the usage of flyllm. You can also check out the 
 
 ```rust
 use flyllm::{
-    ProviderType, LlmManager, GenerationRequest, TaskDefinition, LlmResult,
+    ProviderType, LlmManager, GenerationRequest, LlmManagerResponse, TaskDefinition, LlmResult,
     use_logging, // Helper to setup basic logging
 };
 use std::env; // To read API keys from environment variables
@@ -77,17 +78,17 @@ async fn main() -> LlmResult<()> { // Use LlmResult for error handling
         .define_task(
             TaskDefinition::new("summary")
                 .with_max_tokens(500)    // Set max tokens for this task
-                .with_temperature(0.3) // Set temperature for this task
+                .with_param("temperature", 0.3) // Set temperature for this task
         )
         // Add a provider instance and specify the tasks it supports
-        .add_provider(
+        .add_instance(
             ProviderType::OpenAI,
             "gpt-3.5-turbo",
             &openai_api_key, // Pass the API key
         )
         .supports("summary") // Link the provider to the "summary" task
         // Finalize the manager configuration
-        .build()?; // Use '?' for error propagation
+        .build().await?; // Use await and '?' for error propagation
 
     // Create a generation request using the builder pattern
     let request = GenerationRequest::builder(
@@ -110,7 +111,7 @@ async fn main() -> LlmResult<()> { // Use LlmResult for error handling
     }
 
     // Print token usage statistics
-    manager.print_token_usage();
+    manager.print_token_usage().await;
 
     Ok(())
 }
@@ -123,6 +124,7 @@ Configure the LlmManager with various providers, each supporting different tasks
 ```rust
 use flyllm::{ProviderType, LlmManager, TaskDefinition, LlmResult};
 use std::env;
+use std::path::PathBuf;
 
 async fn configure_manager() -> LlmResult<LlmManager> {
     // --- API Keys ---
@@ -134,39 +136,42 @@ async fn configure_manager() -> LlmResult<LlmManager> {
 
     let manager = LlmManager::builder()
         // Define all tasks first
-        .define_task(TaskDefinition::new("summary").with_max_tokens(500).with_temperature(0.3))
+        .define_task(TaskDefinition::new("summary").with_max_tokens(500).with_param("temperature", 0.3))
         .define_task(TaskDefinition::new("qa").with_max_tokens(1000))
         .define_task(TaskDefinition::new("creative_writing").with_max_tokens(1500).with_temperature(0.9))
-        .define_task(TaskDefinition::new("code_generation").with_temperature(0.1))
+        .define_task(TaskDefinition::new("code_generation").with_param("temperature", 0.1))
         .define_task(TaskDefinition::new("translation")) // Task with default provider parameters
 
         // Add OpenAI provider supporting summary and QA
-        .add_provider(ProviderType::OpenAI, "gpt-4-turbo", &openai_api_key)
+        .add_instance(ProviderType::OpenAI, "gpt-4-turbo", &openai_api_key)
             .supports_many(&["summary", "qa"]) // Assign multiple tasks
 
         // Add Anthropic provider supporting creative writing and code generation
-        .add_provider(ProviderType::Anthropic, "claude-3-sonnet-20240229", &anthropic_api_key)
+        .add_instance(ProviderType::Anthropic, "claude-3-sonnet-20240229", &anthropic_api_key)
             .supports("creative_writing")
             .supports("code_generation")
 
         // Add Mistral provider supporting summary and translation
-        .add_provider(ProviderType::Mistral, "mistral-large-latest", &mistral_api_key)
+        .add_instance(ProviderType::Mistral, "mistral-large-latest", &mistral_api_key)
             .supports("summary")
             .supports("translation")
 
         // Add Google (Gemini) provider supporting QA and creative writing
-        .add_provider(ProviderType::Google, "gemini-1.5-pro", &google_api_key)
+        .add_instance(ProviderType::Google, "gemini-1.5-pro", &google_api_key)
             .supports("qa")
             .supports("creative_writing")
 
         // Add a local Ollama provider supporting summary and code generation
-        .add_provider(ProviderType::Ollama, "llama3:8b", "") // API key often empty for local Ollama
+        .add_instance(ProviderType::Ollama, "llama3:8b", "") // API key often empty for local Ollama
             .supports("summary")
             .supports("code_generation")
             .custom_endpoint("http://localhost:11434/api/chat") // Optional: Specify if not default
 
+        // Optional: Enable debug logging to JSON files
+        .debug_folder(PathBuf::from("debug_logs")) // All request/response data will be logged here
+
         // Finalize configuration
-        .build()?;
+        .build().await?;
 
     println!("LlmManager configured with multiple providers.");
     Ok(manager)
@@ -252,6 +257,66 @@ for result in parallel_results {
         println!("Error: {}", result.error.as_ref().unwrap_or(&"Unknown error".to_string()));
     }
 }
+```
+
+### Debug Logging
+
+FlyLLM supports optional debug logging to help you analyze requests and responses. When enabled, it creates JSON files with detailed information about each generation call.
+
+```rust
+use flyllm::{ProviderType, LlmManager, GenerationRequest, TaskDefinition, LlmResult};
+use std::path::PathBuf;
+
+async fn setup_with_debug_logging() -> LlmResult<LlmManager> {
+    let manager = LlmManager::builder()
+        .define_task(TaskDefinition::new("summary").with_max_tokens(500))
+        .add_instance(ProviderType::OpenAI, "gpt-3.5-turbo", &api_key)
+            .supports("summary")
+        
+        // Enable debug logging - creates folder structure: debug_logs/timestamp/instance_id_provider_model/debug.json
+        .debug_folder(PathBuf::from("debug_logs"))
+        
+        .build().await?;
+    
+    Ok(manager)
+}
+```
+
+The debug files contain structured JSON with:
+- **Metadata**: timestamp, instance details, request duration
+- **Input**: prompt, task, parameters used
+- **Output**: success status, generated content or error, token usage
+
+Example debug file structure:
+```json
+[
+  {
+    "metadata": {
+      "timestamp": 1703123456,
+      "instance_id": 0,
+      "instance_name": "openai",
+      "instance_model": "gpt-3.5-turbo",
+      "duration_ms": 1250
+    },
+    "input": {
+      "prompt": "Summarize this text...",
+      "task": "summary",
+      "parameters": {
+        "max_tokens": 500,
+        "temperature": 0.3
+      }
+    },
+    "output": {
+      "success": true,
+      "content": "This text discusses...",
+      "usage": {
+        "prompt_tokens": 45,
+        "completion_tokens": 123,
+        "total_tokens": 168
+      }
+    }
+  }
+]
 ```
 
 ## License

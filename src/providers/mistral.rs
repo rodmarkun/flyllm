@@ -1,5 +1,5 @@
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::provider::{LlmProvider, BaseProvider};
+use crate::providers::instances::{LlmInstance, BaseInstance};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message}; // Re-use Message struct
 use crate::errors::{LlmError, LlmResult};
 use crate::constants; 
@@ -10,8 +10,8 @@ use reqwest::header;
 use serde::{Serialize, Deserialize};
 
 /// Provider implementation for Mistral AI's API
-pub struct MistralProvider {
-    base: BaseProvider,
+pub struct MistralInstance {
+    base: BaseInstance,
 }
 
 /// Request structure for Mistral AI's chat completion API
@@ -53,7 +53,7 @@ struct MistralUsage {
     total_tokens: u32,
 }
 
-impl MistralProvider {
+impl MistralInstance {
     /// Creates a new Mistral provider instance
     ///
     /// # Parameters
@@ -62,13 +62,13 @@ impl MistralProvider {
     /// * `supported_tasks` - Map of tasks this provider supports
     /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
-        let base = BaseProvider::new("mistral".to_string(), api_key, model, supported_tasks, enabled);
+        let base = BaseInstance::new("mistral".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 }
 
 #[async_trait]
-impl LlmProvider for MistralProvider {
+impl LlmInstance for MistralInstance {
     /// Generates a completion using Mistral AI's API
     ///
     /// # Parameters

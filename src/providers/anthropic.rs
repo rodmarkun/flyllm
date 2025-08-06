@@ -1,5 +1,5 @@
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::provider::{LlmProvider, BaseProvider};
+use crate::providers::instances::{LlmInstance, BaseInstance};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
@@ -10,12 +10,11 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 /// Provider implementation for Anthropic's Claude API
-pub struct AnthropicProvider {
-    base: BaseProvider,
+pub struct AnthropicInstance {
+    base: BaseInstance,
 }
 
 /// Request structure for the Anthropic Claude API
-/// Maps to the format expected by Anthropic's API
 #[derive(Serialize)]
 struct AnthropicRequest {
     model: String,
@@ -57,7 +56,7 @@ struct AnthropicUsage {
     output_tokens: u32,
 }
 
-impl AnthropicProvider {
+impl AnthropicInstance {
     /// Creates a new Anthropic provider instance
     ///
     /// # Parameters
@@ -66,13 +65,13 @@ impl AnthropicProvider {
     /// * `supported_tasks` - Map of tasks this provider supports
     /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
-        let base = BaseProvider::new("anthropic".to_string(), api_key, model, supported_tasks, enabled);
+        let base = BaseInstance::new("anthropic".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 }
 
 #[async_trait]
-impl LlmProvider for AnthropicProvider {
+impl LlmInstance for AnthropicInstance {
     /// Generates a completion using Anthropic's Claude API
     ///
     /// # Parameters

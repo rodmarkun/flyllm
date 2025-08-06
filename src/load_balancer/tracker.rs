@@ -1,44 +1,26 @@
-use log::debug;
-use crate::providers::LlmProvider;
+use crate::providers::LlmInstance;
 use crate::{LlmResponse, LlmResult};
 use std::time::{Duration, Instant};
 use std::sync::Arc; 
 
-/// Metrics for an LLM instance used for monitoring and load balancing
-pub struct InstanceMetrics {
-    pub id: usize,
-    pub model: String,
-    pub request_count: usize,
-    pub error_count: usize,
-    pub avg_response_time: Duration,
-    pub error_rate: f64,
-    pub available: bool,
-    pub provider_name: String,
-    pub last_used: Instant,
-}
-
 /// An LLM provider instance with associated metrics
-pub struct LlmInstance {
-    pub id: usize,
-    pub model: String,
-    pub provider: Arc<dyn LlmProvider + Send + Sync>,
+pub struct InstanceTracker {
+    pub instance: Arc<dyn LlmInstance + Send + Sync>,
     pub last_used: Instant,
     pub response_times: Vec<Duration>,
     pub request_count: usize,
     pub error_count: usize,
 }
 
-impl LlmInstance {
+impl InstanceTracker {
     /// Create a new LLM instance
     ///
     /// # Parameters
     /// * `id` - Unique identifier for this instance
     /// * `provider` - Reference to the provider implementation
-    pub fn new(id: usize, provider: Arc<dyn LlmProvider + Send + Sync>) -> Self {
+    pub fn new(instance: Arc<dyn LlmInstance + Send + Sync>) -> Self {
         Self {
-            id,
-            model: provider.get_model().to_string(),
-            provider,
+            instance: instance,
             last_used: Instant::now(),
             response_times: Vec::new(),
             request_count: 0,
@@ -60,12 +42,9 @@ impl LlmInstance {
                 self.response_times.push(duration);
                 if self.response_times.len() > 10 {
                     self.response_times.remove(0);
-                }
-                debug!("Instance {} ({}) successfully processed request in {:?}", self.id, self.provider.get_name(), duration);
-            }
+                }            }
             Err(e) => {
                 self.error_count += 1;
-                debug!("Instance {} ({}) failed to process request: {:?}", self.id, self.provider.get_name(), e);
             }
         }
     }
@@ -94,43 +73,19 @@ impl LlmInstance {
         }
     }
 
+    /// Check if this instance is currently enabled
+    /// 
+    /// # Returns
+    /// * Whether this instance is enabled or not
+    pub fn is_enabled(&self) -> bool {
+        self.instance.is_enabled()
+    }
+
     /// Check if this instance supports a specific task
     ///
-    /// # Parameters
-    /// * `task_name` - The task to check support for
-    ///
     /// # Returns
-    /// * Whether this instance supports the task
+    /// * Whether this instance supports this task or not
     pub fn supports_task(&self, task_name: &str) -> bool {
-        self.provider.get_supported_tasks().contains_key(task_name)
-    }
-
-    /// Check if this instance is currently enabled
-    ///
-    /// # Returns
-    /// * Whether this instance is enabled
-    pub fn is_enabled(&self) -> bool {
-        self.provider.is_enabled()
-    }
-
-    /// Get the current metrics for this instance
-    ///
-    /// # Returns
-    /// * Metrics structure for this instance
-    pub fn get_metrics(&self) -> InstanceMetrics {
-        let avg_time = self.avg_response_time();
-        let error_rate = self.get_error_rate();
-        
-        InstanceMetrics {
-            id: self.id,
-            model: self.model.clone(),
-            request_count: self.request_count,
-            error_count: self.error_count,
-            avg_response_time: avg_time,
-            error_rate,
-            available: self.is_enabled(),
-            provider_name: self.provider.get_name().to_string(),
-            last_used: self.last_used
-        }
+        self.instance.get_supported_tasks().contains_key(task_name)
     }
 }

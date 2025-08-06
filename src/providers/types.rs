@@ -42,6 +42,16 @@ pub struct TokenUsage {
     pub total_tokens: u32,
 }
 
+impl Default for TokenUsage {
+    fn default() -> Self {
+        Self {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+        }
+    }
+}
+
 /// Information about an LLM model
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModelInfo {

@@ -13,7 +13,7 @@
 pub mod anthropic;
 pub mod openai;
 pub mod types;
-pub mod provider;
+pub mod instances;
 pub mod google;
 pub mod mistral;
 pub mod ollama;
@@ -21,6 +21,6 @@ pub mod model_discovery;
 
 pub use model_discovery::ModelDiscovery;
 pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage, ModelInfo};
-pub use provider::{LlmProvider, create_provider};
-pub use anthropic::AnthropicProvider;
-pub use openai::OpenAIProvider;
+pub use instances::{LlmInstance, create_instance};
+pub use anthropic::AnthropicInstance;
+pub use openai::OpenAIInstance;

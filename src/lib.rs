@@ -50,10 +50,10 @@ pub use providers::{
     ProviderType, 
     LlmRequest, 
     LlmResponse,
-    LlmProvider,
-    create_provider,
-    AnthropicProvider,
-    OpenAIProvider,
+    LlmInstance,
+    create_instance,
+    AnthropicInstance,
+    OpenAIInstance,
     ModelInfo,
     ModelDiscovery
 };

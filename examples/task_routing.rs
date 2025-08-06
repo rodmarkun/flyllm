@@ -3,6 +3,7 @@ use flyllm::{
     use_logging, ModelDiscovery, ModelInfo
 };
 use std::env;
+use std::path::PathBuf;
 use std::time::Instant;
 use std::collections::HashMap;
 use futures::future::join_all;
@@ -10,9 +11,10 @@ use log::info;
 
 #[tokio::main]
 async fn main() -> LlmResult<()> {
+    env::set_var("RUST_LOG", "debug"); // Uncomment this to see debugging messages
     use_logging(); // Setup logging
 
-    info!("Starting Task Routing Example (Builder Pattern)");
+    info!("Starting Task Routing Example");
 
     // --- API Keys ---
     let anthropic_api_key = env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
@@ -46,41 +48,44 @@ async fn main() -> LlmResult<()> {
         )
 
         // Add providers and link tasks by name
-        .add_provider(ProviderType::Ollama, "llama2:7b", "")
-            .supports("summary") // Chain configuration for this provider
-            .supports("code_generation")
-            .custom_endpoint("http://localhost:11434/api/chat") // This is the default Ollama endpoint, but we can specify custom ones.
-            // .enabled(true) // Optional, defaults to true
+        // .add_instance(ProviderType::Ollama, "llama2:7b", "")
+        //     .supports("summary") // Chain configuration for this provider
+        //     .supports("code_generation")
+        //     .custom_endpoint("http://localhost:11434/api/chat") // This is the default Ollama endpoint, but we can specify custom ones.
+        //     // .enabled(true) // Optional, defaults to true
 
-        .add_provider(ProviderType::Mistral, "mistral-large-latest", &mistral_api_key)
+        .add_instance(ProviderType::Mistral, "mistral-large-latest", &mistral_api_key)
             .supports("summary") 
             .supports("code_generation")
 
-        .add_provider(ProviderType::Anthropic, "claude-3-sonnet-20240229", &anthropic_api_key)
+        .add_instance(ProviderType::Anthropic, "claude-3-sonnet-20240229", &anthropic_api_key)
             .supports("summary")
             .supports("creative_writing")
             .supports("code_generation")
 
-        .add_provider(ProviderType::Anthropic, "claude-3-opus-20240229", &anthropic_api_key)
+        .add_instance(ProviderType::Anthropic, "claude-3-opus-20240229", &anthropic_api_key)
              .supports_many(&["creative_writing", "short_poem"]) // Example using supports_many
 
-        .add_provider(ProviderType::Google, "gemini-2.0-flash", &google_api_key)
+        .add_instance(ProviderType::Google, "gemini-2.0-flash", &google_api_key)
              .supports("short_poem")
 
-        .add_provider(ProviderType::OpenAI, "gpt-3.5-turbo", &openai_api_key)
+        .add_instance(ProviderType::OpenAI, "gpt-3.5-turbo", &openai_api_key)
             .supports("summary")
             // Example: Add a disabled provider
-         // .add_provider(ProviderType::OpenAI, "gpt-4", &openai_api_key)
+         // .add_instance(ProviderType::OpenAI, "gpt-4", &openai_api_key)
          //     .supports("creative_writing")
          //     .supports("code_generation")
          //     .enabled(false) // Explicitly disable
 
+        // Adds a debug folder for debugging all requests made
+        .debug_folder(PathBuf::from("debug_folder"))
+
         // Finalize the manager configuration
         .build().await?; // Added .await here
 
-    // Get provider stats asynchronously
-    let provider_stats = manager.get_provider_stats().await;
-    info!("LlmManager configured with {} providers.", provider_stats.len());
+    // Get provider count asynchronously
+    let provider_count = manager.get_provider_count().await;
+    info!("LlmManager configured with {} providers.", provider_count);
 
     // --- Define Requests using Builder ---
     let requests = vec![

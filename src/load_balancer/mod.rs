@@ -7,11 +7,12 @@
 /// - Handling retries and fallbacks when providers fail
 /// - Tracking token usage across providers
 
-pub mod instances;
+pub mod tracker;
 pub mod manager;
 pub mod strategies;
 pub mod tasks;
 pub mod builder;
+pub mod utils;
 
 pub use manager::{LlmManager, GenerationRequest, LlmManagerResponse};
 pub use tasks::TaskDefinition;

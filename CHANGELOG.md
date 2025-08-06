@@ -2,6 +2,11 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.3.0] - 2025-08-06
+### Added
+- Refactored the internals of FlyLLM, making it way simpler to modify and understand
+- Added optional debugging to LlmManager, allowing the user to store all requests and their metadata to JSON files automatically
+
 ## [0.2.3] - 2025-06-06
 ### Added
 - Rate limiting with wait for whenever all providers are overloaded

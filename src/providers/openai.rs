@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::provider::{LlmProvider, BaseProvider};
+use crate::providers::instances::{LlmInstance, BaseInstance};
 use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
@@ -11,8 +11,8 @@ use reqwest::header;
 use serde::{Serialize, Deserialize};
 
 /// Provider implementation for OpenAI's API (GPT models)
-pub struct OpenAIProvider {
-    base: BaseProvider,
+pub struct OpenAIInstance {
+    base: BaseInstance,
 }
 
 /// Request structure for OpenAI's chat completion API
@@ -49,7 +49,7 @@ struct OpenAIUsage {
     total_tokens: u32,
 }
 
-impl OpenAIProvider {
+impl OpenAIInstance {
     /// Creates a new OpenAI provider instance
     ///
     /// # Parameters
@@ -58,13 +58,13 @@ impl OpenAIProvider {
     /// * `supported_tasks` - Map of tasks this provider supports
     /// * `enabled` - Whether this provider is enabled
     pub fn new(api_key: String, model: String, supported_tasks: HashMap<String, TaskDefinition>, enabled: bool) -> Self {
-        let base = BaseProvider::new("openai".to_string(), api_key, model, supported_tasks, enabled);
+        let base = BaseInstance::new("openai".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
 }
 
 #[async_trait]
-impl LlmProvider for OpenAIProvider {
+impl LlmInstance for OpenAIInstance {
     /// Generates a completion using OpenAI's API
     ///
     /// # Parameters
