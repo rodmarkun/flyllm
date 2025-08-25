@@ -1,6 +1,6 @@
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message}; // Re-use Message struct
+use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message}; 
 use crate::errors::{LlmError, LlmResult};
 use crate::constants; 
 
@@ -15,7 +15,6 @@ pub struct MistralInstance {
 }
 
 /// Request structure for Mistral AI's chat completion API
-/// Maps to the format expected by Mistral's API
 #[derive(Serialize)]
 struct MistralRequest {
     model: String,

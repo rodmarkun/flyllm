@@ -71,3 +71,16 @@ impl std::fmt::Display for ProviderType {
         }
     }
 }
+
+impl From<&str> for ProviderType {
+    fn from(value: &str) -> Self {
+        match value {
+            "Anthropic" => ProviderType::Anthropic,
+            "OpenAI" => ProviderType::OpenAI,
+            "Mistral" => ProviderType::Mistral,
+            "Google" => ProviderType::Google,
+            "Ollama" => ProviderType::Ollama,
+            _ => panic!("Unknown provider: {}", value),
+        }
+    }
+}

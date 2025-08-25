@@ -2,6 +2,10 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.3.1] - 2025-08-25
+### Added
+- Upon request, the conversion from `&str` to ProviderType has been implemented 
+
 ## [0.3.0] - 2025-08-06
 ### Added
 - Refactored the internals of FlyLLM, making it way simpler to modify and understand
