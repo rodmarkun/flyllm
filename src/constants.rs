@@ -20,6 +20,21 @@ pub const GOOGLE_API_ENDPOINT_PREFIX: &str = "https://generativelanguage.googlea
 // Ollama
 pub const OLLAMA_API_ENDPOINT: &str = "http://localhost:11434/api/chat";
 
+// LM Studio (OpenAI-compatible local server)
+pub const LMSTUDIO_API_ENDPOINT: &str = "http://localhost:1234/v1/chat/completions";
+
+// Groq
+pub const GROQ_API_ENDPOINT: &str = "https://api.groq.com/openai/v1/chat/completions";
+
+// Cohere (v2 API)
+pub const COHERE_API_ENDPOINT: &str = "https://api.cohere.com/v2/chat";
+
+// Together AI
+pub const TOGETHERAI_API_ENDPOINT: &str = "https://api.together.xyz/v1/chat/completions";
+
+// Perplexity
+pub const PERPLEXITY_API_ENDPOINT: &str = "https://api.perplexity.ai/chat/completions";
+
 // Rate limiting
 pub const DEFAULT_RATE_LIMIT_WAIT_SECS: u64 = 2;
 pub const MAX_RATE_LIMIT_WAIT_SECS: u64 = 60;

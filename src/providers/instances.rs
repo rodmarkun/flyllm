@@ -5,6 +5,11 @@ use crate::providers::openai::OpenAIInstance;
 use crate::providers::ollama::OllamaInstance;
 use crate::providers::google::GoogleInstance;
 use crate::providers::mistral::MistralInstance;
+use crate::providers::lmstudio::LMStudioInstance;
+use crate::providers::groq::GroqInstance;
+use crate::providers::cohere::CohereInstance;
+use crate::providers::togetherai::TogetherAIInstance;
+use crate::providers::perplexity::PerplexityInstance;
 use crate::errors::LlmResult;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -118,6 +123,11 @@ pub fn create_instance(instance_type: ProviderType, api_key: String, model: Stri
         ProviderType::OpenAI => Arc::new(OpenAIInstance::new(api_key, model, supported_tasks, enabled)),
         ProviderType::Mistral => Arc::new(MistralInstance::new(api_key, model, supported_tasks, enabled)),
         ProviderType::Google => Arc::new(GoogleInstance::new(api_key, model, supported_tasks, enabled)),
-        ProviderType::Ollama => Arc::new(OllamaInstance::new(api_key, model, supported_tasks, enabled, endpoint_url))
+        ProviderType::Ollama => Arc::new(OllamaInstance::new(api_key, model, supported_tasks, enabled, endpoint_url)),
+        ProviderType::LMStudio => Arc::new(LMStudioInstance::new(api_key, model, supported_tasks, enabled, endpoint_url)),
+        ProviderType::Groq => Arc::new(GroqInstance::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::Cohere => Arc::new(CohereInstance::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::TogetherAI => Arc::new(TogetherAIInstance::new(api_key, model, supported_tasks, enabled)),
+        ProviderType::Perplexity => Arc::new(PerplexityInstance::new(api_key, model, supported_tasks, enabled)),
     }
 }

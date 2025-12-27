@@ -7,7 +7,12 @@ pub enum ProviderType {
     OpenAI,
     Mistral,
     Google,
-    Ollama
+    Ollama,
+    LMStudio,
+    Groq,
+    Cohere,
+    TogetherAI,
+    Perplexity,
 }
 
 /// Unified request structure used across all providers
@@ -68,6 +73,11 @@ impl std::fmt::Display for ProviderType {
             ProviderType::Mistral => write!(f, "Mistral"),
             ProviderType::Google => write!(f, "Google"),
             ProviderType::Ollama => write!(f, "Ollama"),
+            ProviderType::LMStudio => write!(f, "LMStudio"),
+            ProviderType::Groq => write!(f, "Groq"),
+            ProviderType::Cohere => write!(f, "Cohere"),
+            ProviderType::TogetherAI => write!(f, "TogetherAI"),
+            ProviderType::Perplexity => write!(f, "Perplexity"),
         }
     }
 }
@@ -80,6 +90,11 @@ impl From<&str> for ProviderType {
             "Mistral" => ProviderType::Mistral,
             "Google" => ProviderType::Google,
             "Ollama" => ProviderType::Ollama,
+            "LMStudio" => ProviderType::LMStudio,
+            "Groq" => ProviderType::Groq,
+            "Cohere" => ProviderType::Cohere,
+            "TogetherAI" => ProviderType::TogetherAI,
+            "Perplexity" => ProviderType::Perplexity,
             _ => panic!("Unknown provider: {}", value),
         }
     }
