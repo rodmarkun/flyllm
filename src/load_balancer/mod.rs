@@ -13,6 +13,8 @@ pub mod strategies;
 pub mod tasks;
 pub mod builder;
 pub mod utils;
+pub mod types;
 
-pub use manager::{LlmManager, GenerationRequest, LlmManagerResponse};
+pub use types::{GenerationRequest, LlmManagerResponse};
+pub use manager::{LlmManager};
 pub use tasks::TaskDefinition;

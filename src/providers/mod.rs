@@ -28,9 +28,11 @@ pub mod cohere;
 pub mod togetherai;
 pub mod perplexity;
 pub mod model_discovery;
+pub mod streaming;
 
 pub use model_discovery::ModelDiscovery;
-pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage, ModelInfo};
+pub use types::{ProviderType, LlmRequest, LlmResponse, Message, TokenUsage, ModelInfo, StreamChunk, LlmStream};
+pub use streaming::{OpenAIStreamChunk, AnthropicStreamEvent};
 pub use instances::{LlmInstance, create_instance};
 pub use anthropic::AnthropicInstance;
 pub use openai::OpenAIInstance;

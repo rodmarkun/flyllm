@@ -1,6 +1,6 @@
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
 
@@ -9,6 +9,7 @@ use reqwest::header;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use log::debug;
+use futures::StreamExt;
 
 /// Provider implementation for Google's Gemini AI models
 pub struct GoogleInstance {
@@ -62,11 +63,25 @@ struct GoogleGenerateContentResponse {
 /// Individual candidate from Google's Gemini API response
 #[derive(Deserialize)]
 struct GoogleCandidate {
-    content: GoogleContent, 
+    content: GoogleContent,
     #[serde(rename = "tokenCount")]
-    #[serde(default)] 
+    #[serde(default)]
     token_count: u32, // Note: Google provides total token count here
     // safety_ratings: Vec<SafetyRating>, // We don't use this currently
+}
+
+/// Streaming response structure from Google's Gemini API
+#[derive(Deserialize)]
+struct GoogleStreamChunk {
+    candidates: Option<Vec<GoogleStreamCandidate>>,
+}
+
+/// Streaming candidate from Google's response
+#[derive(Deserialize)]
+struct GoogleStreamCandidate {
+    content: Option<GoogleContent>,
+    #[serde(rename = "finishReason")]
+    finish_reason: Option<String>,
 }
 
 
@@ -248,6 +263,129 @@ impl LlmInstance for GoogleInstance {
             model: model_name.to_string(), 
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Google".to_string()));
+        }
+
+        let model_name = self.base.model();
+        let api_key = self.base.api_key();
+
+        // Use streamGenerateContent endpoint for streaming
+        let url = format!(
+            "{}/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+            constants::GOOGLE_API_ENDPOINT_PREFIX,
+            model_name,
+            api_key
+        );
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        let contents = Self::map_messages_to_contents(&request.messages)?;
+
+        let mut generation_config = GoogleGenerationConfig::default();
+        generation_config.temperature = request.temperature;
+        generation_config.max_output_tokens = request.max_tokens;
+
+        let google_request = GoogleGenerateContentRequest {
+            contents,
+            generation_config: Some(generation_config).filter(|gc| {
+                gc.temperature.is_some() || gc.max_output_tokens.is_some()
+            }),
+        };
+
+        let response = self.base.client()
+            .post(&url)
+            .headers(headers)
+            .json(&google_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+
+        if response_status.as_u16() == 429 {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| "Rate limit exceeded".to_string());
+            return Err(LlmError::RateLimit(format!("Google rate limit: {}", error_text)));
+        }
+
+        if !response_status.is_success() {
+            let error_json: Result<serde_json::Value, _> = response.json().await;
+            let error_details = match error_json {
+                Ok(json) => json.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("Unknown error: {}", json)),
+                Err(_) => "Failed to parse error response".to_string(),
+            };
+            return Err(LlmError::ApiError(format!("Google API error ({}): {}", response_status, error_details)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                // Google SSE format: data: {...}
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    match serde_json::from_str::<GoogleStreamChunk>(data) {
+                                        Ok(chunk) => {
+                                            if let Some(candidates) = chunk.candidates {
+                                                if let Some(candidate) = candidates.first() {
+                                                    let is_final = candidate.finish_reason.is_some();
+                                                    if let Some(content) = &candidate.content {
+                                                        let text = content.parts.iter()
+                                                            .map(|p| p.text.clone())
+                                                            .collect::<Vec<_>>()
+                                                            .join("");
+                                                        return Some(Ok(StreamChunk {
+                                                            content: text,
+                                                            model: None,
+                                                            is_final,
+                                                            usage: None,
+                                                        }));
+                                                    }
+                                                }
+                                            }
+                                            None
+                                        }
+                                        Err(e) => {
+                                            // Skip parse errors for incomplete chunks
+                                            debug!("Failed to parse Google streaming chunk: {}", e);
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     /// Returns provider name

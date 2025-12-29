@@ -1,0 +1,138 @@
+# FlyLLM Configuration Example
+# Copy this file to flyllm.toml and configure your providers
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+[settings]
+# Load balancing strategy: "lru" (default), "lowest_latency", or "random"
+strategy = "lru"
+
+# Maximum retry attempts for failed requests (default: 5)
+max_retries = 3
+
+# Optional: Enable debug logging to a folder
+# debug_folder = "./debug"
+
+# =============================================================================
+# TASK DEFINITIONS
+# Define reusable parameter sets that can be assigned to providers
+# =============================================================================
+
+[[tasks]]
+name = "summary"
+max_tokens = 500
+temperature = 0.3
+
+[[tasks]]
+name = "creative_writing"
+max_tokens = 2000
+temperature = 0.9
+
+[[tasks]]
+name = "code_generation"
+max_tokens = 4000
+temperature = 0.2
+
+[[tasks]]
+name = "chat"
+max_tokens = 1000
+temperature = 0.7
+
+# =============================================================================
+# PROVIDER INSTANCES
+# Configure your LLM providers here
+# API keys can use environment variables: "${VAR_NAME}"
+# =============================================================================
+
+# --- OpenAI ---
+[[providers]]
+type = "openai"
+model = "gpt-4-turbo"
+api_key = "${OPENAI_API_KEY}"
+tasks = ["summary", "code_generation", "chat"]
+enabled = true
+
+# You can add multiple instances of the same provider with different keys
+# [[providers]]
+# type = "openai"
+# model = "gpt-4-turbo"
+# api_key = "${OPENAI_API_KEY_SECONDARY}"
+# name = "openai-backup"  # Optional: friendly name for this instance
+# tasks = ["chat"]
+
+# --- Anthropic (Claude) ---
+[[providers]]
+type = "anthropic"
+model = "claude-3-sonnet-20240229"
+api_key = "${ANTHROPIC_API_KEY}"
+tasks = ["creative_writing", "summary", "chat"]
+enabled = true
+
+# --- Mistral ---
+# [[providers]]
+# type = "mistral"
+# model = "mistral-large-latest"
+# api_key = "${MISTRAL_API_KEY}"
+# tasks = ["summary", "chat"]
+# enabled = true
+
+# --- Google (Gemini) ---
+# [[providers]]
+# type = "google"
+# model = "gemini-pro"
+# api_key = "${GOOGLE_API_KEY}"
+# tasks = ["summary", "chat"]
+# enabled = true
+
+# --- Groq (Fast Inference) ---
+# [[providers]]
+# type = "groq"
+# model = "llama-3.1-70b-versatile"
+# api_key = "${GROQ_API_KEY}"
+# tasks = ["chat", "summary"]
+# enabled = true
+
+# --- Together AI (Open Source Models) ---
+# [[providers]]
+# type = "togetherai"
+# model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+# api_key = "${TOGETHER_API_KEY}"
+# tasks = ["chat"]
+# enabled = true
+
+# --- Cohere ---
+# [[providers]]
+# type = "cohere"
+# model = "command-r-plus"
+# api_key = "${COHERE_API_KEY}"
+# tasks = ["summary"]
+# enabled = true
+
+# --- Perplexity (Search-Augmented) ---
+# [[providers]]
+# type = "perplexity"
+# model = "sonar"
+# api_key = "${PERPLEXITY_API_KEY}"
+# tasks = ["chat"]
+# enabled = true
+
+# --- Ollama (Local) ---
+# No API key required for local Ollama
+# [[providers]]
+# type = "ollama"
+# model = "llama3"
+# api_key = ""
+# endpoint = "http://localhost:11434"  # Custom endpoint (optional)
+# tasks = ["chat", "summary"]
+# enabled = true
+
+# --- LM Studio (Local) ---
+# No API key required for local LM Studio
+# [[providers]]
+# type = "lmstudio"
+# model = "local-model"
+# api_key = ""
+# endpoint = "http://localhost:1234"  # Custom endpoint (optional)
+# tasks = ["code_generation"]
+# enabled = true

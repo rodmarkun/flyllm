@@ -2,13 +2,15 @@ use std::collections::HashMap;
 
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
+use crate::providers::streaming::OpenAIStreamChunk;
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
 
 use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
+use futures::StreamExt;
 
 /// Provider implementation for Groq's API
 ///
@@ -55,12 +57,6 @@ struct GroqUsage {
 
 impl GroqInstance {
     /// Creates a new Groq provider instance
-    ///
-    /// # Parameters
-    /// * `api_key` - Groq API key (required)
-    /// * `model` - Default model to use (e.g., "llama-3.3-70b-versatile", "mixtral-8x7b-32768")
-    /// * `supported_tasks` - Map of tasks this provider supports
-    /// * `enabled` - Whether this provider is enabled
     pub fn new(
         api_key: String,
         model: String,
@@ -70,16 +66,8 @@ impl GroqInstance {
         let base = BaseInstance::new("groq".to_string(), api_key, model, supported_tasks, enabled);
         Self { base }
     }
-}
 
-#[async_trait]
-impl LlmInstance for GroqInstance {
-    /// Generates a completion using Groq's API
-    async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
-        if !self.base.is_enabled() {
-            return Err(LlmError::ProviderDisabled("Groq".to_string()));
-        }
-
+    fn build_headers(&self) -> Result<header::HeaderMap, LlmError> {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
@@ -90,7 +78,18 @@ impl LlmInstance for GroqInstance {
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
         );
+        Ok(headers)
+    }
+}
 
+#[async_trait]
+impl LlmInstance for GroqInstance {
+    async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Groq".to_string()));
+        }
+
+        let headers = self.build_headers()?;
         let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
 
         let groq_request = GroqRequest {
@@ -101,9 +100,7 @@ impl LlmInstance for GroqInstance {
             stream: false,
         };
 
-        let response = self
-            .base
-            .client()
+        let response = self.base.client()
             .post(constants::GROQ_API_ENDPOINT)
             .headers(headers)
             .json(&groq_request)
@@ -112,19 +109,14 @@ impl LlmInstance for GroqInstance {
 
         let response_status = response.status();
 
-        // Check for rate limiting
         if response_status.as_u16() == 429 {
-            let error_text = response
-                .text()
-                .await
+            let error_text = response.text().await
                 .unwrap_or_else(|_| "Rate limit exceeded".to_string());
             return Err(LlmError::RateLimit(format!("Groq rate limit: {}", error_text)));
         }
 
         if !response_status.is_success() {
-            let error_text = response
-                .text()
-                .await
+            let error_text = response.text().await
                 .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
             return Err(LlmError::ApiError(format!("Groq API error: {}", error_text)));
         }
@@ -146,6 +138,84 @@ impl LlmInstance for GroqInstance {
             model: groq_response.model,
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Groq".to_string()));
+        }
+
+        let headers = self.build_headers()?;
+        let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
+
+        let groq_request = GroqRequest {
+            model,
+            messages: request.messages.clone(),
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            stream: true,
+        };
+
+        let response = self.base.client()
+            .post(constants::GROQ_API_ENDPOINT)
+            .headers(headers)
+            .json(&groq_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+
+        if response_status.as_u16() == 429 {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| "Rate limit exceeded".to_string());
+            return Err(LlmError::RateLimit(format!("Groq rate limit: {}", error_text)));
+        }
+
+        if !response_status.is_success() {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
+            return Err(LlmError::ApiError(format!("Groq API error: {}", error_text)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    if data == "[DONE]" {
+                                        return None;
+                                    }
+                                    match serde_json::from_str::<OpenAIStreamChunk>(data) {
+                                        Ok(chunk) => chunk.to_stream_chunk().map(Ok),
+                                        Err(e) => Some(Err(LlmError::ParseError(
+                                            format!("Failed to parse streaming chunk: {}", e)
+                                        ))),
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     fn get_name(&self) -> &str {

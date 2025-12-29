@@ -1,13 +1,15 @@
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message}; 
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
+use crate::providers::streaming::OpenAIStreamChunk;
 use crate::errors::{LlmError, LlmResult};
-use crate::constants; 
+use crate::constants;
 
 use std::collections::HashMap;
 use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
+use futures::StreamExt;
 
 /// Provider implementation for Mistral AI's API
 pub struct MistralInstance {
@@ -18,11 +20,13 @@ pub struct MistralInstance {
 #[derive(Serialize)]
 struct MistralRequest {
     model: String,
-    messages: Vec<Message>, 
+    messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 /// Response structure from Mistral AI's chat completion API
@@ -112,6 +116,7 @@ impl LlmInstance for MistralInstance {
             }).collect(),
             temperature: request.temperature,
             max_tokens: request.max_tokens,
+            stream: None,
         };
 
         let response = self.base.client()
@@ -167,6 +172,108 @@ impl LlmInstance for MistralInstance {
             model: mistral_response.model,
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Mistral".to_string()));
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            header::HeaderValue::from_str(&format!("Bearer {}", self.base.api_key()))
+                .map_err(|e| LlmError::ConfigError(format!("Invalid API key format: {}", e)))?,
+        );
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
+
+        if request.messages.is_empty() {
+            return Err(LlmError::ApiError("Mistral requires at least one message".to_string()));
+        }
+
+        let mistral_request = MistralRequest {
+            model,
+            messages: request.messages.iter().map(|m| Message {
+                role: match m.role.as_str() {
+                    "system" | "user" | "assistant" => m.role.clone(),
+                    _ => "user".to_string(),
+                },
+                content: m.content.clone()
+            }).collect(),
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            stream: Some(true),
+        };
+
+        let response = self.base.client()
+            .post(constants::MISTRAL_API_ENDPOINT)
+            .headers(headers)
+            .json(&mistral_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+
+        if response_status.as_u16() == 429 {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| "Rate limit exceeded".to_string());
+            return Err(LlmError::RateLimit(format!("Mistral rate limit: {}", error_text)));
+        }
+
+        if !response_status.is_success() {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
+            return Err(LlmError::ApiError(format!("Mistral API error: {}", error_text)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    if data == "[DONE]" {
+                                        return None;
+                                    }
+                                    match serde_json::from_str::<OpenAIStreamChunk>(data) {
+                                        Ok(chunk) => chunk.to_stream_chunk().map(Ok),
+                                        Err(e) => Some(Err(LlmError::ParseError(
+                                            format!("Failed to parse streaming chunk: {}", e)
+                                        ))),
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     /// Returns provider name

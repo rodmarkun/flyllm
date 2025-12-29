@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
 use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
 use url::Url;
+use futures::StreamExt;
 
 /// Provider implementation for Ollama (local LLMs)
 pub struct OllamaInstance {
@@ -45,6 +46,20 @@ struct OllamaResponse {
     prompt_eval_count: u32,
     #[serde(default)] // Use default (0) if not present
     eval_count: u32, // Corresponds roughly to completion tokens
+}
+
+/// Streaming response structure from Ollama's chat API
+#[derive(Deserialize, Debug)]
+struct OllamaStreamResponse {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    message: Option<Message>,
+    done: bool,
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
 }
 
 impl OllamaInstance {
@@ -176,6 +191,117 @@ impl LlmInstance for OllamaInstance {
             model: ollama_response.model,
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Ollama".to_string()));
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        // Add Authorization header if an API key is actually provided and non-empty
+        if !self.base.api_key().is_empty() {
+            match header::HeaderValue::from_str(&format!("Bearer {}", self.base.api_key())) {
+                Ok(val) => { headers.insert(header::AUTHORIZATION, val); },
+                Err(e) => return Err(LlmError::ConfigError(format!("Invalid API key format for Ollama: {}", e))),
+            }
+        }
+
+        let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
+
+        // Map common parameters to Ollama options
+        let mut options = OllamaOptions::default();
+        if request.temperature.is_some() {
+            options.temperature = request.temperature;
+        }
+        if request.max_tokens.is_some() {
+            options.num_predict = request.max_tokens;
+        }
+
+        let ollama_request = OllamaRequest {
+            model,
+            messages: request.messages.clone(),
+            stream: true, // Enable streaming
+            options: if options.temperature.is_some() || options.num_predict.is_some() { Some(options) } else { None },
+        };
+
+        let response = self.base.client()
+            .post(&self.endpoint_url)
+            .headers(headers)
+            .json(&ollama_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+        if !response_status.is_success() {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
+            return Err(LlmError::ApiError(format!("Ollama API error: {}", error_text)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        // Ollama uses NDJSON - each line is a complete JSON object
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                if line.is_empty() {
+                                    return None;
+                                }
+                                match serde_json::from_str::<OllamaStreamResponse>(line) {
+                                    Ok(response) => {
+                                        let content = response.message
+                                            .map(|m| m.content)
+                                            .unwrap_or_default();
+
+                                        let usage = if response.done {
+                                            let prompt = response.prompt_eval_count.unwrap_or(0);
+                                            let completion = response.eval_count.unwrap_or(0);
+                                            Some(TokenUsage {
+                                                prompt_tokens: prompt,
+                                                completion_tokens: completion,
+                                                total_tokens: prompt + completion,
+                                            })
+                                        } else {
+                                            None
+                                        };
+
+                                        Some(Ok(StreamChunk {
+                                            content,
+                                            model: response.model,
+                                            is_final: response.done,
+                                            usage,
+                                        }))
+                                    }
+                                    Err(e) => Some(Err(LlmError::ParseError(
+                                        format!("Failed to parse Ollama streaming response: {}", e)
+                                    ))),
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     /// Returns provider name

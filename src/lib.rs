@@ -43,17 +43,20 @@ pub mod providers;
 pub mod errors;
 pub mod constants;
 pub mod load_balancer;
+pub mod config;
 
 pub use providers::{
-    ProviderType, 
-    LlmRequest, 
+    ProviderType,
+    LlmRequest,
     LlmResponse,
     LlmInstance,
     create_instance,
     AnthropicInstance,
     OpenAIInstance,
     ModelInfo,
-    ModelDiscovery
+    ModelDiscovery,
+    StreamChunk,
+    LlmStream
 };
 
 pub use errors::{LlmError, LlmResult};

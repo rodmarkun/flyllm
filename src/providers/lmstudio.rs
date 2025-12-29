@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
+use crate::providers::streaming::OpenAIStreamChunk;
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
 
@@ -10,6 +11,7 @@ use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
 use url::Url;
+use futures::StreamExt;
 
 /// Provider implementation for LM Studio (OpenAI-compatible local server)
 ///
@@ -194,6 +196,101 @@ impl LlmInstance for LMStudioInstance {
             model: lmstudio_response.model,
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("LMStudio".to_string()));
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        // Add Authorization header if an API key is provided (optional for LM Studio)
+        if !self.base.api_key().is_empty() {
+            match header::HeaderValue::from_str(&format!("Bearer {}", self.base.api_key())) {
+                Ok(val) => {
+                    headers.insert(header::AUTHORIZATION, val);
+                }
+                Err(e) => {
+                    return Err(LlmError::ConfigError(format!(
+                        "Invalid API key format for LM Studio: {}",
+                        e
+                    )))
+                }
+            }
+        }
+
+        let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
+
+        let lmstudio_request = LMStudioRequest {
+            model,
+            messages: request.messages.clone(),
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            stream: true,
+        };
+
+        let response = self
+            .base
+            .client()
+            .post(&self.endpoint_url)
+            .headers(headers)
+            .json(&lmstudio_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+        if !response_status.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
+            return Err(LlmError::ApiError(format!("LM Studio API error: {}", error_text)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    if data == "[DONE]" {
+                                        return None;
+                                    }
+                                    match serde_json::from_str::<OpenAIStreamChunk>(data) {
+                                        Ok(chunk) => chunk.to_stream_chunk().map(Ok),
+                                        Err(e) => Some(Err(LlmError::ParseError(
+                                            format!("Failed to parse streaming chunk: {}", e)
+                                        ))),
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     fn get_name(&self) -> &str {

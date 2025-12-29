@@ -1,4 +1,7 @@
 use serde::{Serialize, Deserialize};
+use std::pin::Pin;
+use futures::Stream;
+use crate::errors::LlmError;
 
 /// Enum representing the different LLM providers supported
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -84,18 +87,56 @@ impl std::fmt::Display for ProviderType {
 
 impl From<&str> for ProviderType {
     fn from(value: &str) -> Self {
-        match value {
-            "Anthropic" => ProviderType::Anthropic,
-            "OpenAI" => ProviderType::OpenAI,
-            "Mistral" => ProviderType::Mistral,
-            "Google" => ProviderType::Google,
-            "Ollama" => ProviderType::Ollama,
-            "LMStudio" => ProviderType::LMStudio,
-            "Groq" => ProviderType::Groq,
-            "Cohere" => ProviderType::Cohere,
-            "TogetherAI" => ProviderType::TogetherAI,
-            "Perplexity" => ProviderType::Perplexity,
+        match value.to_lowercase().as_str() {
+            "anthropic" => ProviderType::Anthropic,
+            "openai" => ProviderType::OpenAI,
+            "mistral" => ProviderType::Mistral,
+            "google" => ProviderType::Google,
+            "ollama" => ProviderType::Ollama,
+            "lmstudio" => ProviderType::LMStudio,
+            "groq" => ProviderType::Groq,
+            "cohere" => ProviderType::Cohere,
+            "togetherai" => ProviderType::TogetherAI,
+            "perplexity" => ProviderType::Perplexity,
             _ => panic!("Unknown provider: {}", value),
         }
     }
 }
+
+/// A chunk of streamed content from an LLM provider
+#[derive(Debug, Clone)]
+pub struct StreamChunk {
+    /// The text content of this chunk
+    pub content: String,
+    /// The model that generated this chunk (may be empty until final chunk)
+    pub model: Option<String>,
+    /// Whether this is the final chunk in the stream
+    pub is_final: bool,
+    /// Token usage information (typically only available in final chunk)
+    pub usage: Option<TokenUsage>,
+}
+
+impl StreamChunk {
+    /// Create a new content chunk
+    pub fn content(text: impl Into<String>) -> Self {
+        Self {
+            content: text.into(),
+            model: None,
+            is_final: false,
+            usage: None,
+        }
+    }
+
+    /// Create a final chunk with usage information
+    pub fn final_chunk(model: impl Into<String>, usage: Option<TokenUsage>) -> Self {
+        Self {
+            content: String::new(),
+            model: Some(model.into()),
+            is_final: true,
+            usage,
+        }
+    }
+}
+
+/// Type alias for a boxed stream of chunks
+pub type LlmStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>;

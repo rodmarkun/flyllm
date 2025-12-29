@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::providers::instances::{LlmInstance, BaseInstance};
-use crate::providers::types::{LlmRequest, LlmResponse, TokenUsage, Message};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, StreamChunk, TokenUsage, Message};
 use crate::errors::{LlmError, LlmResult};
 use crate::constants;
 
 use async_trait::async_trait;
 use reqwest::header;
 use serde::{Serialize, Deserialize};
+use futures::StreamExt;
 
 /// Provider implementation for Cohere's API (v2)
 ///
@@ -87,6 +88,47 @@ struct CohereTokens {
     input_tokens: Option<u32>,
     #[serde(default)]
     output_tokens: Option<u32>,
+}
+
+/// Streaming event from Cohere's v2 API
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+enum CohereStreamEvent {
+    #[serde(rename = "message-start")]
+    MessageStart,
+    #[serde(rename = "content-start")]
+    ContentStart,
+    #[serde(rename = "content-delta")]
+    ContentDelta { delta: Option<CohereContentDelta> },
+    #[serde(rename = "content-end")]
+    ContentEnd,
+    #[serde(rename = "message-end")]
+    MessageEnd { delta: Option<CohereMessageEndDelta> },
+}
+
+/// Content delta from Cohere streaming
+#[derive(Deserialize, Debug)]
+struct CohereContentDelta {
+    message: Option<CohereContentDeltaMessage>,
+}
+
+/// Content delta message from Cohere streaming
+#[derive(Deserialize, Debug)]
+struct CohereContentDeltaMessage {
+    content: Option<CohereContentDeltaContent>,
+}
+
+/// Content delta content from Cohere streaming
+#[derive(Deserialize, Debug)]
+struct CohereContentDeltaContent {
+    text: Option<String>,
+}
+
+/// Message end delta from Cohere streaming
+#[derive(Deserialize, Debug)]
+struct CohereMessageEndDelta {
+    #[serde(default)]
+    usage: Option<CohereUsage>,
 }
 
 impl CohereInstance {
@@ -242,6 +284,151 @@ impl LlmInstance for CohereInstance {
             model,
             usage,
         })
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        if !self.base.is_enabled() {
+            return Err(LlmError::ProviderDisabled("Cohere".to_string()));
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            header::HeaderValue::from_str(&format!("Bearer {}", self.base.api_key()))
+                .map_err(|e| LlmError::ConfigError(format!("Invalid API key format: {}", e)))?,
+        );
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        let model = request.model.clone().unwrap_or_else(|| self.base.model().to_string());
+
+        let cohere_request = CohereRequest {
+            model: model.clone(),
+            messages: Self::convert_messages(&request.messages),
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            stream: true,
+        };
+
+        let response = self
+            .base
+            .client()
+            .post(constants::COHERE_API_ENDPOINT)
+            .headers(headers)
+            .json(&cohere_request)
+            .send()
+            .await?;
+
+        let response_status = response.status();
+
+        if response_status.as_u16() == 429 {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Rate limit exceeded".to_string());
+            return Err(LlmError::RateLimit(format!("Cohere rate limit: {}", error_text)));
+        }
+
+        if !response_status.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| format!("Unknown error. Status: {}", response_status));
+            return Err(LlmError::ApiError(format!("Cohere API error: {}", error_text)));
+        }
+
+        let byte_stream = response.bytes_stream();
+
+        // Cohere uses SSE with JSON events
+        let chunk_stream = byte_stream
+            .map(|result| result.map_err(|e| LlmError::RequestError(e)))
+            .flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let chunks: Vec<Result<StreamChunk, LlmError>> = text
+                            .lines()
+                            .filter_map(|line| {
+                                let line = line.trim();
+                                // Cohere SSE format: data: {...}
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    match serde_json::from_str::<CohereStreamEvent>(data) {
+                                        Ok(event) => {
+                                            match event {
+                                                CohereStreamEvent::ContentDelta { delta } => {
+                                                    if let Some(delta) = delta {
+                                                        if let Some(message) = delta.message {
+                                                            if let Some(content) = message.content {
+                                                                if let Some(text) = content.text {
+                                                                    return Some(Ok(StreamChunk {
+                                                                        content: text,
+                                                                        model: None,
+                                                                        is_final: false,
+                                                                        usage: None,
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    None
+                                                }
+                                                CohereStreamEvent::MessageEnd { delta } => {
+                                                    let usage = delta.and_then(|d| d.usage).and_then(|u| {
+                                                        if let Some(tokens) = u.tokens {
+                                                            let input = tokens.input_tokens.unwrap_or(0);
+                                                            let output = tokens.output_tokens.unwrap_or(0);
+                                                            Some(TokenUsage {
+                                                                prompt_tokens: input,
+                                                                completion_tokens: output,
+                                                                total_tokens: input + output,
+                                                            })
+                                                        } else if let Some(billed) = u.billed_units {
+                                                            let input = billed.input_tokens.unwrap_or(0);
+                                                            let output = billed.output_tokens.unwrap_or(0);
+                                                            Some(TokenUsage {
+                                                                prompt_tokens: input,
+                                                                completion_tokens: output,
+                                                                total_tokens: input + output,
+                                                            })
+                                                        } else {
+                                                            None
+                                                        }
+                                                    });
+                                                    Some(Ok(StreamChunk {
+                                                        content: String::new(),
+                                                        model: None,
+                                                        is_final: true,
+                                                        usage,
+                                                    }))
+                                                }
+                                                _ => None, // Skip other event types
+                                            }
+                                        }
+                                        Err(_) => None, // Skip unparseable events
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        futures::stream::iter(chunks)
+                    }
+                    Err(e) => futures::stream::iter(vec![Err(e)])
+                }
+            });
+
+        Ok(Box::pin(chunk_stream))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     fn get_name(&self) -> &str {

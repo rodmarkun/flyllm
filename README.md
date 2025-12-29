@@ -8,7 +8,9 @@ FlyLLM is a Rust library that provides a load-balanced, multi-provider client fo
 
 ## Features
 
-- **Multiple Provider Support** 🌐: Unified interface for OpenAI, Anthropic, Google, Ollama and Mistral APIs
+- **Multiple Provider Support** 🌐: Currently we support a unified interface for OpenAI, Anthropic, Google, Mistral, Ollama, Groq, Cohere, Together AI, Perplexity, and LM Studio
+- **Streaming Responses** 🌊: Real-time streaming support for all providers
+- **TOML Configuration** 📄: Load configuration from TOML files with environment variable support
 - **Task-Based Routing** 🧭: Route requests to the most appropriate provider based on predefined tasks
 - **Load Balancing** ⚖️: Automatically distribute load across multiple provider instances
 - **Failure Handling** 🛡️: Retry mechanisms and automatic failover between providers
@@ -24,8 +26,9 @@ Add FlyLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-flyllm = "0.3.0"
+flyllm = "0.4.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] } # For async runtime
+futures = "0.3"  # For streaming support
 ```
 
 ## Architecture
@@ -318,6 +321,114 @@ Example debug file structure:
   }
 ]
 ```
+
+### TOML Configuration
+
+Instead of using the builder pattern, you can load your configuration from a TOML file. This is useful for managing configurations declaratively and keeping API keys secure via environment variables.
+
+```rust
+use flyllm::{LlmManager, GenerationRequest, LlmResult};
+
+#[tokio::main]
+async fn main() -> LlmResult<()> {
+    // Load configuration from a TOML file
+    let manager = LlmManager::from_config_file("flyllm.toml").await?;
+
+    let request = GenerationRequest::builder("What is the capital of France?")
+        .task("chat")
+        .build();
+
+    let responses = manager.generate_sequentially(vec![request]).await;
+    println!("{}", responses[0].content);
+
+    Ok(())
+}
+```
+
+Example `flyllm.toml`:
+
+```toml
+[settings]
+strategy = "lru"          # "lru", "lowest_latency", or "random"
+max_retries = 3
+
+[[tasks]]
+name = "chat"
+max_tokens = 1000
+temperature = 0.7
+
+[[tasks]]
+name = "summary"
+max_tokens = 500
+temperature = 0.3
+
+# API keys use environment variable syntax: ${VAR_NAME}
+[[providers]]
+type = "openai"
+model = "gpt-4-turbo"
+api_key = "${OPENAI_API_KEY}"
+tasks = ["chat", "summary"]
+
+[[providers]]
+type = "anthropic"
+model = "claude-3-sonnet-20240229"
+api_key = "${ANTHROPIC_API_KEY}"
+tasks = ["chat", "summary"]
+
+# Multiple keys for the same provider (load balancing)
+[[providers]]
+type = "openai"
+model = "gpt-4-turbo"
+api_key = "${OPENAI_API_KEY_SECONDARY}"
+name = "openai-backup"
+tasks = ["chat"]
+
+# Local providers (no API key needed)
+[[providers]]
+type = "ollama"
+model = "llama3"
+api_key = ""
+endpoint = "http://localhost:11434"
+tasks = ["chat"]
+```
+
+See `examples/flyllm.example.toml` for a complete configuration template.
+
+### Streaming Responses
+
+FlyLLM supports streaming responses from all providers, allowing you to receive generated text in real-time as it's produced.
+
+```rust
+use flyllm::{LlmManager, GenerationRequest, LlmResult};
+use futures::StreamExt;
+
+async fn streaming_example(manager: &LlmManager) -> LlmResult<()> {
+    let request = GenerationRequest::builder("Write a short poem about the ocean.")
+        .task("creative_writing")
+        .build();
+
+    // Get a stream of response chunks
+    let mut stream = manager.generate_stream(request).await?;
+
+    print!("Response: ");
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => {
+                print!("{}", chunk.content);
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            }
+            Err(e) => eprintln!("Stream error: {}", e),
+        }
+    }
+    println!();
+
+    Ok(())
+}
+```
+
+All 10 providers support streaming:
+- **SSE-based**: OpenAI, Anthropic, Groq, LM Studio, Together AI, Perplexity
+- **Provider-specific**: Mistral, Google/Gemini, Ollama, Cohere
 
 ## License
 

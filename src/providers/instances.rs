@@ -1,5 +1,5 @@
 use crate::load_balancer::tasks::TaskDefinition;
-use crate::providers::types::{LlmRequest, LlmResponse, ProviderType};
+use crate::providers::types::{LlmRequest, LlmResponse, LlmStream, ProviderType, StreamChunk};
 use crate::providers::anthropic::AnthropicInstance;
 use crate::providers::openai::OpenAIInstance;
 use crate::providers::ollama::OllamaInstance;
@@ -10,22 +10,45 @@ use crate::providers::groq::GroqInstance;
 use crate::providers::cohere::CohereInstance;
 use crate::providers::togetherai::TogetherAIInstance;
 use crate::providers::perplexity::PerplexityInstance;
-use crate::errors::LlmResult;
+use crate::errors::{LlmResult};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use std::time::Duration;
 use reqwest::Client;
+use futures::stream;
 
 /// Common interface for all LLM instances
-/// 
+///
 /// This trait defines the interface that all LLM instances must implement
 /// to be compatible with the load balancer system.
 #[async_trait]
 pub trait LlmInstance {
     /// Generate a completion from the LLM instance
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponse>;
+
+    /// Generate a streaming completion from the LLM instance
+    ///
+    /// Returns a stream of chunks that can be consumed as they arrive.
+    /// Default implementation falls back to non-streaming and emits a single chunk.
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<LlmStream> {
+        // Default implementation: fall back to non-streaming
+        let response = self.generate(request).await?;
+        let chunk = StreamChunk {
+            content: response.content,
+            model: Some(response.model),
+            is_final: true,
+            usage: response.usage,
+        };
+        Ok(Box::pin(stream::once(async move { Ok(chunk) })))
+    }
+
+    /// Check if this instance supports native streaming
+    fn supports_streaming(&self) -> bool {
+        false // Default: no native streaming support
+    }
+
     /// Get the name of this instance
     fn get_name(&self) -> &str;
     /// Get the currently configured model name

@@ -1,109 +1,22 @@
+use crate::config::{self, Config};
 use crate::errors::{LlmError, LlmResult};
 use crate::load_balancer::builder::LlmManagerBuilder;
-use crate::load_balancer::strategies;
+use crate::load_balancer::types::{GenerationRequest, LlmManagerResponse, LlmManagerRequest};
+use crate::load_balancer::strategies::{self, LoadBalancingStrategy, LeastRecentlyUsedStrategy, LowestLatencyStrategy, RandomStrategy};
 use crate::load_balancer::tasks::TaskDefinition;
 use crate::load_balancer::tracker::InstanceTracker;
 use crate::load_balancer::utils::{get_debug_path, write_to_debug_file};
-use crate::providers::{LlmInstance, LlmRequest, Message, TokenUsage};
-use crate::{constants, create_instance, ProviderType}; // TODO - ?
+use crate::providers::{LlmInstance, LlmRequest, LlmStream, Message, TokenUsage};
+use crate::{constants, create_instance, ProviderType};
 use futures::future::join_all;
 use log::{debug, info, warn};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-
-/// User-facing request for LLM generation
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GenerationRequest {
-    pub prompt: String,                                     // Prompt for the LLM
-    pub task: Option<String>,                               // Task to route for
-    pub params: Option<HashMap<String, serde_json::Value>>, // Extra parameters
-}
-
-impl Default for GenerationRequest {
-    fn default() -> Self {
-        Self {
-            prompt: String::new(),
-            task: None,
-            params: None,
-        }
-    }
-}
-
-impl GenerationRequest {
-    // Standard Constructor
-    pub fn new(prompt: String) -> Self {
-        GenerationRequest {
-            prompt,
-            ..Default::default()
-        }
-    }
-
-    /// Creates a builder for a GenerationRequest.
-    pub fn builder(prompt: impl Into<String>) -> GenerationRequest {
-        GenerationRequest::new(prompt.into())
-    }
-
-    /// Sets the target task for this request.
-    pub fn task(mut self, name: impl Into<String>) -> Self {
-        self.task = Some(name.into());
-        self
-    }
-
-    /// Adds or overrides a parameter specifically for this request.
-    pub fn param(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
-        self.params
-            .get_or_insert_with(HashMap::new)
-            .insert(key.into(), value.into());
-        self
-    }
-
-    /// Sets max tokens for this generation in specific
-    pub fn max_tokens(self, tokens: u32) -> Self {
-        self.param("max_tokens", json!(tokens))
-    }
-
-    /// Finalizes the GenerationRequest
-    pub fn build(self) -> Self {
-        self
-    }
-}
-
-/// Internal request structure with additional retry information
-#[derive(Clone)]
-struct LlmManagerRequest {
-    pub prompt: String,
-    pub task: Option<String>,
-    pub params: Option<HashMap<String, serde_json::Value>>,
-    pub attempts: usize,
-    pub failed_instances: Vec<usize>,
-}
-
-impl LlmManagerRequest {
-    /// Convert a user-facing GenerationRequest to internal format
-    fn from_generation_request(request: GenerationRequest) -> Self {
-        Self {
-            prompt: request.prompt,
-            task: request.task,
-            params: request.params,
-            attempts: 0,
-            failed_instances: Vec::new(),
-        }
-    }
-}
-
-/// Response structure returned to users
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LlmManagerResponse {
-    pub content: String,
-    pub success: bool,
-    pub error: Option<String>,
-}
 
 /// Main manager for LLM providers that handles load balancing and retries
 ///
@@ -144,6 +57,122 @@ impl LlmManager {
     /// Creates a new builder to configure the LlmManager.
     pub fn builder() -> LlmManagerBuilder {
         LlmManagerBuilder::new()
+    }
+
+    /// Create an LlmManager from a TOML configuration file.
+    ///
+    /// This provides a declarative way to configure the manager without using the builder pattern.
+    /// API keys can use environment variable syntax: `api_key = "${OPENAI_API_KEY}"`
+    ///
+    /// # Parameters
+    /// * `path` - Path to the TOML configuration file
+    ///
+    /// # Returns
+    /// * Result with the configured LlmManager or a configuration error
+    ///
+    /// # Example
+    /// ```no_run
+    /// use flyllm::LlmManager;
+    ///
+    /// async fn example() {
+    ///     let manager = LlmManager::from_config_file("flyllm.toml")
+    ///         .await
+    ///         .expect("Failed to load config");
+    /// }
+    /// ```
+    pub async fn from_config_file<P: AsRef<Path>>(path: P) -> LlmResult<Self> {
+        let config = config::load_config(path)?;
+        Self::from_config(config).await
+    }
+
+    /// Create an LlmManager from a TOML configuration string.
+    ///
+    /// Useful for embedded configurations or testing.
+    ///
+    /// # Parameters
+    /// * `toml_content` - TOML configuration as a string
+    ///
+    /// # Returns
+    /// * Result with the configured LlmManager or a configuration error
+    pub async fn from_config_str(toml_content: &str) -> LlmResult<Self> {
+        let config = config::parse_config(toml_content)?;
+        Self::from_config(config).await
+    }
+
+    /// Internal method to build an LlmManager from a parsed Config.
+    async fn from_config(config: Config) -> LlmResult<Self> {
+        // Create strategy based on config
+        let strategy: Box<dyn LoadBalancingStrategy + Send + Sync> =
+            match config.settings.strategy.to_lowercase().as_str() {
+                "lru" | "least_recently_used" => Box::new(LeastRecentlyUsedStrategy::new()),
+                "lowest_latency" | "latency" => Box::new(LowestLatencyStrategy::new()),
+                "random" => Box::new(RandomStrategy::new()),
+                _ => Box::new(LeastRecentlyUsedStrategy::new()), // Default fallback
+            };
+
+        let mut manager = Self::new_with_strategy_and_retries(strategy, config.settings.max_retries);
+
+        // Set debug folder if specified
+        if let Some(debug_folder) = config.settings.debug_folder {
+            manager.debug_folder = Some(PathBuf::from(debug_folder));
+        }
+
+        // Build task definitions map for lookup
+        let mut task_defs: HashMap<String, TaskDefinition> = HashMap::new();
+        for task_config in &config.tasks {
+            let mut task_def = TaskDefinition::new(&task_config.name);
+            if let Some(max_tokens) = task_config.max_tokens {
+                task_def = task_def.with_max_tokens(max_tokens);
+            }
+            if let Some(temperature) = task_config.temperature {
+                task_def = task_def.with_temperature(temperature);
+            }
+            task_defs.insert(task_config.name.clone(), task_def);
+        }
+
+        // Add provider instances
+        for provider_config in &config.providers {
+            // Parse provider type
+            let provider_type: ProviderType = provider_config.provider_type.as_str().into();
+
+            // Collect task definitions for this provider
+            let mut provider_tasks: Vec<TaskDefinition> = Vec::new();
+            for task_name in &provider_config.tasks {
+                if let Some(task_def) = task_defs.get(task_name) {
+                    provider_tasks.push(task_def.clone());
+                }
+                // Note: validation already happened in config::loader, so task should exist
+            }
+
+            // Add the instance
+            manager.add_instance(
+                provider_type,
+                provider_config.api_key.clone(),
+                provider_config.model.clone(),
+                provider_tasks,
+                provider_config.enabled,
+                provider_config.endpoint.clone(),
+            ).await;
+
+            let provider_name = provider_config.name.as_deref()
+                .unwrap_or(&provider_config.model);
+            info!(
+                "Loaded provider from config: {} ({}) - tasks: {:?}",
+                provider_config.provider_type,
+                provider_name,
+                provider_config.tasks
+            );
+        }
+
+        // Warn if no providers were configured
+        let provider_count = manager.get_provider_count().await;
+        if provider_count == 0 {
+            warn!("LlmManager loaded from config with no provider instances.");
+        } else {
+            info!("LlmManager loaded from config with {} provider(s)", provider_count);
+        }
+
+        Ok(manager)
     }
 
     /// Create a new LlmManager with a custom load balancing strategy
@@ -371,6 +400,158 @@ impl LlmManager {
         let results = join_all(futures).await;
         info!("Exiting batch_generate");
         results
+    }
+
+    /// Generate a streaming response for a single request
+    ///
+    /// This method selects an appropriate provider instance and returns a stream
+    /// of response chunks. Note that streaming does not support automatic retries
+    /// on failure since the stream is consumed progressively.
+    ///
+    /// # Parameters
+    /// * `request` - The generation request to process
+    ///
+    /// # Returns
+    /// * Result with either a stream of chunks or an error
+    pub async fn generate_stream(&self, request: GenerationRequest) -> LlmResult<LlmStream> {
+        info!("generate_stream called for task: {:?}", request.task);
+
+        let internal_request = LlmManagerRequest::from_generation_request(request);
+        let task = internal_request.task.as_deref();
+        let request_params = internal_request.params.clone();
+
+        // Select an instance (similar logic to instance_selection but simplified for streaming)
+        let (selected_instance, selected_id, task_def) = self.select_streaming_instance(task).await?;
+
+        // Merge parameters
+        let mut final_params = HashMap::new();
+        if let Some(task_def) = task_def {
+            final_params.extend(task_def.parameters.clone());
+        }
+        if let Some(req_params) = request_params {
+            final_params.extend(req_params);
+        }
+
+        let max_tokens = final_params
+            .get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+
+        let temperature = final_params
+            .get("temperature")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32);
+
+        let llm_request = LlmRequest {
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: internal_request.prompt,
+            }],
+            model: None,
+            max_tokens,
+            temperature,
+        };
+
+        debug!("Instance {} starting streaming request", selected_id);
+
+        // Check if the selected instance supports streaming
+        if !selected_instance.supports_streaming() {
+            warn!("Instance {} does not support native streaming, falling back to non-streaming", selected_id);
+        }
+
+        selected_instance.generate_stream(&llm_request).await
+    }
+
+    /// Select an instance for streaming (simpler than regular selection, no retries)
+    async fn select_streaming_instance(
+        &self,
+        task: Option<&str>,
+    ) -> LlmResult<(Arc<dyn LlmInstance + Send + Sync>, usize, Option<TaskDefinition>)> {
+        // Get candidate instance IDs based on task
+        let candidate_ids: Option<Vec<usize>> = match task {
+            Some(task_name) => {
+                let task_map = self.tasks_to_instances.lock().await;
+                task_map.get(task_name).cloned()
+            }
+            None => None,
+        };
+
+        if task.is_some() && candidate_ids.is_none() {
+            return Err(LlmError::ConfigError(format!(
+                "No providers available for task: {}",
+                task.unwrap()
+            )));
+        }
+
+        // Get eligible instances
+        let eligible_instances_data: Vec<(usize, Arc<dyn LlmInstance + Send + Sync>, Option<TaskDefinition>)>;
+        let eligible_instance_ids: Vec<usize>;
+
+        {
+            let trackers_guard = self.trackers.lock().await;
+
+            if trackers_guard.is_empty() {
+                return Err(LlmError::ConfigError("No LLM providers available".to_string()));
+            }
+
+            match candidate_ids {
+                Some(ids) => {
+                    eligible_instances_data = trackers_guard
+                        .iter()
+                        .filter(|(id, tracker)| {
+                            ids.contains(id) && tracker.is_enabled()
+                        })
+                        .map(|(id, tracker)| {
+                            let task_def = task
+                                .and_then(|t| tracker.instance.get_supported_tasks().get(t).cloned());
+                            (*id, tracker.instance.clone(), task_def)
+                        })
+                        .collect();
+                }
+                None => {
+                    eligible_instances_data = trackers_guard
+                        .iter()
+                        .filter(|(_, tracker)| tracker.is_enabled())
+                        .map(|(id, tracker)| {
+                            let task_def = task
+                                .and_then(|t| tracker.instance.get_supported_tasks().get(t).cloned());
+                            (*id, tracker.instance.clone(), task_def)
+                        })
+                        .collect();
+                }
+            }
+
+            if eligible_instances_data.is_empty() {
+                return Err(LlmError::ConfigError(format!(
+                    "No enabled providers available{}",
+                    task.map_or_else(|| "".to_string(), |t| format!(" for task: '{}'", t))
+                )));
+            }
+
+            eligible_instance_ids = eligible_instances_data.iter().map(|(id, _, _)| *id).collect();
+        }
+
+        // Select using strategy
+        let selected_id = {
+            let trackers_guard = self.trackers.lock().await;
+            let mut strategy = self.strategy.lock().await;
+
+            let eligible_trackers: Vec<(usize, &InstanceTracker)> = eligible_instance_ids
+                .iter()
+                .filter_map(|id| trackers_guard.get(id).map(|tracker| (*id, tracker)))
+                .collect();
+
+            let selected_index = strategy.select_instance(&eligible_trackers);
+            eligible_trackers[selected_index].0
+        };
+
+        // Find the selected instance data
+        let selected = eligible_instances_data
+            .into_iter()
+            .find(|(id, _, _)| *id == selected_id)
+            .expect("Selected instance not found in eligible list");
+
+        Ok((selected.1, selected.0, selected.2))
     }
 
     /// Core function to generate a response with retries
