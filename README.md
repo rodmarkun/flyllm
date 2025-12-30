@@ -33,7 +33,9 @@ futures = "0.3"  # For streaming support
 
 ## Architecture
 
-![Open Escordia_2025-04-25_13-41-55](https://github.com/user-attachments/assets/a56e375b-0bca-4de6-a4d3-c000812105d5)
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/4b213cc5-5813-4d3d-9e7f-5e51807a563c" alt="FlyLLM Architecture Diagram">
+</div>
 
 The LLM Manager (`LLMManager`) serves as the core component for orchestrating language model interactions in your application. It manages multiple LLM instances (`LLMInstance`), each defined by a model, API key, and supported tasks (`TaskDefinition`).
 
