@@ -1,6 +1,6 @@
 [package]
 name = "flyllm"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A Rust library for unifying LLM backends as an abstraction layer with load balancing."
 authors = ["Pablo Rodríguez <rodmarprogrammer@gmail.com>"]
@@ -8,6 +8,11 @@ license = "MIT"
 repository = "https://github.com/rodmarkun/flyllm"
 readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "load-balancing"]
+
+[features]
+default = []
+metrics = ["dep:metrics"]
+metrics-server = ["metrics", "dep:axum"]
 
 [dependencies]
 async-trait = "0.1.88"
@@ -27,5 +32,12 @@ env_logger = "0.10"
 rand = "0.9.1"
 url = "2.5.4"
 
+# Optional metrics dependencies
+metrics = { version = "0.24", optional = true }
+axum = { version = "0.8", optional = true, features = ["tokio"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tempfile = "3"
+serde_json = "1.0"
+metrics-exporter-prometheus = "0.16"

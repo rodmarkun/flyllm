@@ -2,6 +2,18 @@
 
 All notable changes to FlyLLM will be documented in this file.
 
+## [0.4.1] - 2026-01-01
+### Added
+- **Prometheus Metrics**: Optional metrics emission for monitoring LLM operations
+  - Enable with `metrics` feature flag
+  - Tracks requests, latency, token usage, errors, retries, and rate limits
+  - Uses the `metrics` crate for backend-agnostic integration
+  - New `flyllm::describe_metrics()` function for Prometheus discovery
+- **Grafana Dashboard**: Ready-to-use monitoring stack in `monitoring/` directory
+  - Pre-built Grafana dashboard with request rates, latency percentiles, token usage, and error tracking
+  - Docker Compose setup for Prometheus + Grafana
+  - Simple `./start.sh` script for quick deployment
+
 ## [0.4.0] - 2025-12-29
 ### Added
 - **TOML Configuration**: Load LlmManager from TOML files instead of using the builder pattern

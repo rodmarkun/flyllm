@@ -24,7 +24,9 @@ pub struct LlmManagerBuilder {
     providers_to_build: Vec<ProviderConfig>,
     strategy: Box<dyn LoadBalancingStrategy + Send + Sync>,
     max_retries: usize,
-    debug_folder: Option<PathBuf>
+    debug_folder: Option<PathBuf>,
+    #[cfg(feature = "metrics-server")]
+    dashboard_config: Option<crate::metrics::dashboard::DashboardServerConfig>,
 }
 
 impl LlmManagerBuilder {
@@ -35,7 +37,9 @@ impl LlmManagerBuilder {
             providers_to_build: Vec::new(),
             strategy: Box::new(LeastRecentlyUsedStrategy::new()), // Default strategy
             max_retries: constants::DEFAULT_MAX_TRIES, // Default retries
-            debug_folder: None
+            debug_folder: None,
+            #[cfg(feature = "metrics-server")]
+            dashboard_config: None,
         }
     }
 
@@ -134,6 +138,45 @@ impl LlmManagerBuilder {
         self
     }
 
+    /// Configure the dashboard HTTP server with custom settings.
+    /// Requires the `metrics-server` feature.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use flyllm::LlmManager;
+    /// use flyllm::metrics::dashboard::DashboardServerConfig;
+    ///
+    /// let manager = LlmManager::builder()
+    ///     .with_dashboard_server(DashboardServerConfig::with_port(9898))
+    ///     .build()
+    ///     .await;
+    /// ```
+    #[cfg(feature = "metrics-server")]
+    pub fn with_dashboard_server(
+        mut self,
+        config: crate::metrics::dashboard::DashboardServerConfig,
+    ) -> Self {
+        self.dashboard_config = Some(config);
+        self
+    }
+
+    /// Enable the dashboard HTTP server on the default address (127.0.0.1:9898).
+    /// Requires the `metrics-server` feature.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use flyllm::LlmManager;
+    ///
+    /// let manager = LlmManager::builder()
+    ///     .enable_dashboard_server()
+    ///     .build()
+    ///     .await;
+    /// ```
+    #[cfg(feature = "metrics-server")]
+    pub fn enable_dashboard_server(self) -> Self {
+        self.with_dashboard_server(crate::metrics::dashboard::DashboardServerConfig::default())
+    }
+
     /// Sets a custom endpoint for the *last added* provider.
     /// Panics if `add_provider` was not called before this.
     pub fn custom_endpoint(mut self, endpoint: impl Into<String>) -> Self {
@@ -185,9 +228,19 @@ impl LlmManagerBuilder {
         let trackers = manager.trackers.lock().await;
         let is_empty = trackers.is_empty();
         drop(trackers);
-        
+
         if is_empty {
             log::warn!("LlmManager built with no provider instances.");
+        }
+
+        // Start dashboard server if configured
+        #[cfg(feature = "metrics-server")]
+        if let Some(config) = self.dashboard_config {
+            tokio::spawn(async move {
+                if let Err(e) = crate::metrics::dashboard::start_dashboard_server(config).await {
+                    log::error!("Dashboard server failed: {}", e);
+                }
+            });
         }
 
         Ok(manager)

@@ -55,6 +55,20 @@ impl From<serde_json::Error> for LlmError {
     }
 }
 
+/// Convert std::io::Error to LlmError
+impl From<std::io::Error> for LlmError {
+    fn from(err: std::io::Error) -> Self {
+        LlmError::ConfigError(err.to_string())
+    }
+}
+
+/// Convert toml parsing errors to LlmError
+impl From<toml::de::Error> for LlmError {
+    fn from(err: toml::de::Error) -> Self {
+        LlmError::ConfigError(err.to_string())
+    }
+}
+
 /// Result type alias for LLM operations
 pub type LlmResult<T> = Result<T, LlmError>;
 

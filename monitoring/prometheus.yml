@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Scrape metrics from your FlyLLM application
+  # Configure the target to match where your app exposes Prometheus metrics
+  - job_name: 'flyllm'
+    static_configs:
+      # Default target assumes the metrics example running on the host
+      # On Linux, use host.docker.internal or your machine's IP
+      - targets: ['host.docker.internal:9090']
+    # If your app is running in Docker, use the service name instead:
+    # - targets: ['your-app:9090']

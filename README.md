@@ -18,7 +18,9 @@ FlyLLM is a Rust library that provides a load-balanced, multi-provider client fo
 - **Custom Parameters** 🔧: Set provider-specific parameters per task or request
 - **Usage Tracking** 📊: Monitor token consumption for cost management
 - **Debug Logging** 🔍: Optional request/response logging to JSON files for debugging and analysis
-- **Builder Pattern Configuration** ✨: Fluent and readable setup for tasks and providers.
+- **Builder Pattern Configuration** ✨: Fluent and readable setup for tasks and providers
+- **Prometheus Metrics** 📈: Optional metrics for monitoring requests, latency, tokens, and errors
+- **Grafana Dashboard** 📊: Ready-to-use monitoring stack with pre-built dashboard (see [monitoring/](monitoring/))
 
 ## Installation
 
@@ -26,7 +28,7 @@ Add FlyLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-flyllm = "0.4.0"
+flyllm = "0.4.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] } # For async runtime
 futures = "0.3"  # For streaming support
 ```
@@ -431,6 +433,38 @@ async fn streaming_example(manager: &LlmManager) -> LlmResult<()> {
 All 10 providers support streaming:
 - **SSE-based**: OpenAI, Anthropic, Groq, LM Studio, Together AI, Perplexity
 - **Provider-specific**: Mistral, Google/Gemini, Ollama, Cohere
+
+### Metrics & Monitoring
+
+FlyLLM provides optional Prometheus metrics for monitoring your LLM operations. Enable with the `metrics` feature:
+
+```toml
+[dependencies]
+flyllm = { version = "0.4", features = ["metrics"] }
+metrics-exporter-prometheus = "0.16"
+```
+
+```rust
+use metrics_exporter_prometheus::PrometheusBuilder;
+
+// Set up Prometheus exporter
+PrometheusBuilder::new()
+    .with_http_listener(([0, 0, 0, 0], 9090))
+    .install()
+    .expect("prometheus setup");
+
+// Optional: describe metrics for better discovery
+flyllm::describe_metrics();
+```
+
+Available metrics:
+- `llm_requests_total` - Total requests by provider/model/task
+- `llm_request_duration_seconds` - Request latency
+- `llm_tokens_prompt_total` / `llm_tokens_completion_total` - Token usage
+- `llm_errors_total` - Errors by type
+- `llm_retries_total` - Retry attempts
+
+For a ready-to-use **Prometheus + Grafana** monitoring stack with a pre-built dashboard, see [monitoring/README.md](monitoring/README.md).
 
 ## License
 

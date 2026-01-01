@@ -45,6 +45,9 @@ pub mod constants;
 pub mod load_balancer;
 pub mod config;
 
+#[cfg(feature = "metrics")]
+pub mod metrics;
+
 pub use providers::{
     ProviderType,
     LlmRequest,
@@ -62,6 +65,9 @@ pub use providers::{
 pub use errors::{LlmError, LlmResult};
 
 pub use load_balancer::{LlmManager, GenerationRequest, LlmManagerResponse, TaskDefinition};
+
+#[cfg(feature = "metrics")]
+pub use metrics::describe_metrics;
 
 /// Initialize the logging system
 ///

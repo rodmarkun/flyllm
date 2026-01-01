@@ -631,10 +631,28 @@ impl LlmManager {
                         // Don't mark this instance as failed for rate limits
                         // Just increment attempts and try again
                         attempts += 1;
+
+                        // Record retry metric
+                        #[cfg(feature = "metrics")]
+                        {
+                            let trackers_guard = self.trackers.lock().await;
+                            if let Some(tracker) = trackers_guard.get(&instance_id) {
+                                crate::metrics::record_retry(tracker.instance.get_name());
+                            }
+                        }
                     } else {
                         // For non-rate-limit errors, mark instance as failed
                         failed_instances.push(instance_id);
                         attempts += 1;
+
+                        // Record retry metric
+                        #[cfg(feature = "metrics")]
+                        {
+                            let trackers_guard = self.trackers.lock().await;
+                            if let Some(tracker) = trackers_guard.get(&instance_id) {
+                                crate::metrics::record_retry(tracker.instance.get_name());
+                            }
+                        }
                     }
 
                     if attempts > max_retries {
@@ -932,6 +950,32 @@ impl LlmManager {
             &result,
             duration,
         ).await;
+
+        // Emit metrics if the metrics feature is enabled
+        #[cfg(feature = "metrics")]
+        {
+            let model = selected_provider_arc.get_model();
+            match &result {
+                Ok(response) => {
+                    crate::metrics::record_request_success(
+                        selected_name,
+                        &model,
+                        task,
+                        duration,
+                        response.usage.as_ref(),
+                    );
+                }
+                Err(e) => {
+                    crate::metrics::record_request_failure(
+                        selected_name,
+                        &model,
+                        task,
+                        e,
+                        duration,
+                    );
+                }
+            }
+        }
 
         // Return either content or error with the instance ID
         match result {
